@@ -63,24 +63,32 @@ def quit(conn):
     else:
         print("need y or n")
 
+cfg = {}
+
 def mkCfg():
     # if not cfg exist
     # make and write to file
-    if os.path.isfile("cfg.json"):
+    global cfg, cfgFn
+    if os.path.isfile(cfgFn):
         return
     cfg = {
+            "db": "testdb",
+            "dbuid": "admin",
+            "dbpswd": "owl",
+            "dbip": None,
             "txid": 1,
             "csvLast": None
             }
-    putCfg(cfg)
+    putCfg()
 
 def getCfg():
-    with open('cfg.json', 'r') as fh:
+    global cfg, cfgFn
+    with open(cfgFn, 'r') as fh:
         cfg = json.load(fh)
-    return cfg
 
-def putCfg(cfg):
-    with open('cfg.json', 'w', encoding='utf-8') as fh:
+def putCfg():
+    global cfg, cfgFn
+    with open(cfgFn, 'w', encoding='utf-8') as fh:
         json.dump(cfg, fh, ensure_ascii=False, indent=4)
 
 def testGetTxid():
@@ -94,7 +102,7 @@ txid = 0
 def getTxid():
     global txid
     if txid == 0:
-        cfg = getCfg()
+        getCfg()
         txid = cfg["txid"]
     else:
         txid += 1
@@ -102,11 +110,11 @@ def getTxid():
 
 def putTxid():
     global txid
-    cfg = getCfg()
+    getCfg()
     cfg["txid"] = getTxid()
-    putCfg(cfg)
+    putCfg()
 
-def getConnector(usr, pw, db):
+def getConnector(db, usr, pw):
     conn = mariadb.connect(
         user=usr,
         password=pw,
@@ -428,29 +436,46 @@ def getAccounts(c):
     #print(crAcct)
 
 def readCreds(db):
-    with open("creds.csv", "r") as csvfile:
-        csvreader = csv.reader(csvfile)
+    try:
+        csvfile = open("creds.csv", "r")
+    except:
+        exitPgm("failed to open cred file", -1)
 
-        # skip header
-        next(csvreader)
+    csvreader = csv.reader(csvfile)
+    # skip header
+    next(csvreader)
 
-        for row in csvreader:
-            if db == row[0]:
-                #print(row)
-                return row
+    for row in csvreader:
+        if db == row[0]:
+            #print(row)
+            return row
+
+def showSyntax(msg):
+    print("Usage: oa.py <optional path>/<cfg fn>")
+    exitPgm(msg, -1)
+
+def getCfgFn():
+    if len(sys.argv) != 2:
+        showSyntax("missing cfg fn")
+    return sys.argv[1]
 
 # --- main ---
 
 print("mariadb frontend for simple accounting, v0.0")
 
-creds = readCreds("testdb")
+cfgFn = getCfgFn()
+print("cfgFn=%s" % cfgFn)
 mkCfg()
+getCfg()
+#creds = readCreds("testdb")
 #creds = readCreds("fmledger")
 #print(creds)
-dbConn = getConnector(creds[1], creds[2], creds[0])
+#dbConn = getConnector(creds[1], creds[2], creds[0])
+dbConn = getConnector(cfg["db"], cfg["dbuid"], cfg["dbpswd"])
 dbCursor = getCursor(dbConn)
 dbChgAttempt = False
 getAccounts(dbCursor)
+#exitAbnormal("DBG")
 
 while True:
     cmd = input("cmd: ")
