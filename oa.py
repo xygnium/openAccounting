@@ -6,6 +6,7 @@ import mariadb
 import csv
 import json
 from itertools import islice
+from PyPDF2 import PdfReader
 
 cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
 
@@ -486,6 +487,12 @@ def getCfgFn():
         showSyntax("missing cfg fn")
     return sys.argv[1]
 
+def runTest():
+    fn="../fm/receipts/2023/FM-R2023-0xx.pdf"
+    reader = PdfReader(fn)
+    page = reader.pages[0]
+    print(page.extract_text())
+
 # --- main ---
 
 print("mariadb frontend for simple accounting, v0.0")
@@ -532,6 +539,8 @@ while True:
         dbCommit(dbConn)
     elif cmd == "rb":
         dbRollback(dbConn)
+    elif cmd == "test":
+        runTest()
     else:
         print("cmd not recognized")
 
