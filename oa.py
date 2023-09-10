@@ -77,7 +77,7 @@ def mkCfg():
             "dbpswd": "owl",
             "dbip": None,
             "txid": 1,
-            "csvLast": None
+            "csvDir": None
             }
     putCfg()
 
@@ -211,15 +211,15 @@ def chgAddTransaction(cursor):
     dbOp(cursor, crop)
     # date       | amount   | account | direction | payee | descrip | receiptid
 
-def confirmZero():
+def confirmZero(c):
     op = ("select "
           "sum(case when direction = 1 then amount end), "
           "sum(case when direction = -1 then amount end) "
           "from transactions;"
          )
-    dbOp(dbCursor, op)
+    dbOp(c, op)
     r=[]
-    for i in dbCursor:
+    for i in c:
         print(i)
         r+=i
     if r[0] == r[1]:
@@ -227,23 +227,30 @@ def confirmZero():
     else:
         print("DR != CR")
 
-def showBalance():
-    confirmZero()
-
-def makeDetailedBalanceSheet():
+def makeDetailedBalanceSheet(c):
     op = ("select "
-                "(account) as a,"
-                "name",
+                "account,"
+                "name,"
                 "sum(amount * direction * normal) as balance "
             "from "
                 "transactions "
-                "left join accounts on a = accounts.number "
+                "left join accounts on account = accounts.number "
             "group by "
-                "name "
+                "account "
             "order by "
-                "a, "
-                "name;"
+                "account;"
         )
+    dbOp(c, op)
+    #print("%3s  %20s   %8s" % ("No", "Name", "Balance"))
+    #for i in c:
+    #    print("%3s  %20s   %8s" % (i[0], i[1], i[2]))
+    #print
+    for i in c:
+        print("%s|%s|%s" % (i[0], i[1], i[2]))
+
+def showBalance(c):
+    makeDetailedBalanceSheet(c)
+    confirmZero(c)
 
 def showTransactions():
     op = "SELECT * FROM transactions;"
@@ -379,14 +386,17 @@ def creditCardImportSmallBusBofA(c):
     for e in dbEntries:
         print()
         print(e)
-        txid = getTxid()
-        drop = mkDrX(txid, e["date"], e["amt"], e["dr"], e["payee"], e["desc"], e["rid"])
-        crop = mkCrX(txid, e["date"], e["amt"], e["cr"], e["payee"], e["desc"], e["rid"])
+        #txid = getTxid()
+        #drop = mkDrX(txid, e["date"], e["amt"], e["dr"], e["payee"], e["desc"], e["rid"])
+        #crop = mkCrX(txid, e["date"], e["amt"], e["cr"], e["payee"], e["desc"], e["rid"])
         print
     # write to file as JSON
-    #j = json.dumps(dbEntries, indent=4)
-    #print(j)
-    # insert into db
+    j = json.dumps(dbEntries, indent=4)
+    print(j)
+    # write json to file
+    with open("x.json", 'w', encoding='utf-8') as fh:
+        json.dump(dbEntries, fh, ensure_ascii=False, indent=4)
+
 
 def chgAddAccount(dbCursor):
     print("add account")
@@ -496,7 +506,7 @@ while True:
     elif cmd == "shac":
         showAccounts()
     elif cmd == "shbal":
-        showBalance()
+        showBalance(dbCursor)
     elif cmd == "shx":
         showTransactions()
     elif cmd == "addx":
