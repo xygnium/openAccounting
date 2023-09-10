@@ -12,9 +12,9 @@ cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
 cmdDict = {
         "h": "show all cmds",
         "q": "quit pgm",
-        "cc": "make transactions csv file from csv file downloaded from BofA credit card account",
-        "ck": "make transactions csv file from csv file downloaded from BofA checking account",
-        "inx": "chg db - import transactions csv file",
+        "cc": "make transactions input file from csv file downloaded from BofA credit card account",
+        "ck": "make transactions input file from csv file downloaded from BofA checking account",
+        "inx": "chg db - import transactions input file",
         "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
         "shbal": "show balance",
         "shac": "show account info",
@@ -322,6 +322,23 @@ def csvEngine(rowAct, c, skip):
             return
         i += 1
 
+def getFilename(user):
+    # input CR=skip, d=get new dir, f=show fn list, q=quit 
+    reply, ok = getInput(user, "reciept ID (CR=skip, d=new dir, f show fn list, q=quit): ", False)
+    if reply == False or (len(reply) == 0):
+        return "", False
+    if reply == "d":
+        print("get directory of receipt files and show fn list")
+    if reply == "d":
+        print("use current directory of receipt files and show fn list")
+    # input is number in allowed range, or q=quit/skip
+    reply, ok = getInput(user, "reciept ID (number or q=quit): ", False)
+    if not ok:
+        return "", False
+    # check number for validity
+    print("number is not in range 1..n")
+    return "", False
+
 def getInput(user, prompt, required):
     while True:
         reply = input("%s: " % prompt)
@@ -339,7 +356,7 @@ def showEntry (i, date, amt, payee, desc, rid, dr, cr):
     print("%d. date=%s, amt=%s, payee=%s, desc=%s, receiptID=%s, dr=%s, cr=%s" % 
             (i, date, amt, payee, desc, rid, dr, cr))
 
-def rowActBofAcc(r, i):
+def rowActBofaCC(r, i):
     global dbEntries
     print()
     print(r)
@@ -366,7 +383,7 @@ def rowActBofAcc(r, i):
         desc, ok = getInput("cc", "description", False)
         if not ok:
             return False
-        rid, ok = getInput("cc", "receipt ID", False)
+        rid, ok = getFilename("cc")
         if not ok:
             return False
 
@@ -381,7 +398,7 @@ def creditCardImportSmallBusBofA(c):
     print("creditCardImport")
     global dbEntries
     dbEntries = []
-    csvEngine(rowActBofAcc, c, 5)
+    csvEngine(rowActBofaCC, c, 5)
     # review all entries
     for e in dbEntries:
         print()
