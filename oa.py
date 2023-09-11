@@ -7,6 +7,7 @@ import csv
 import json
 from itertools import islice
 from PyPDF2 import PdfReader
+import glob
 
 cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
 
@@ -78,7 +79,8 @@ def mkCfg():
             "dbpswd": "owl",
             "dbip": None,
             "txid": 1,
-            "csvDir": None
+            "csvDir": None,
+            "receiptDir": None
             }
     putCfg()
 
@@ -323,21 +325,29 @@ def csvEngine(rowAct, c, skip):
             return
         i += 1
 
-def getFilename(user):
-    # input CR=skip, d=get new dir, f=show fn list, q=quit 
-    reply, ok = getInput(user, "reciept ID (CR=skip, d=new dir, f show fn list, q=quit): ", False)
-    if reply == False or (len(reply) == 0):
-        return "", False
-    if reply == "d":
-        print("get directory of receipt files and show fn list")
-    if reply == "d":
-        print("use current directory of receipt files and show fn list")
+receiptIdList = []
+
+def getReceiptId(user):
+    global receiptIdList
+    if len(receiptIdList) == 0:
+        getCfg()
+        receiptIdList = glob.glob(os.path.join(cfg["receiptDir"], "*pdf"))
+
+    i = 0
+    for r in receiptIdList:
+        print("%s (%d)" % (r, i+1))
+        i += 1
+
     # input is number in allowed range, or q=quit/skip
-    reply, ok = getInput(user, "reciept ID (number or q=quit): ", False)
+    reply, ok = getInput(user, "receipt ID (number or q=quit): ", False)
     if not ok:
         return "", False
     # check number for validity
-    print("number is not in range 1..n")
+    select = int(reply) - 1
+    if (select >= 0) and (select < i):
+        return receiptIdList[select], True
+
+    print("number is not in range 1..%d" % i-1)
     return "", False
 
 def getInput(user, prompt, required):
@@ -384,7 +394,7 @@ def rowActBofaCC(r, i):
         desc, ok = getInput("cc", "description", False)
         if not ok:
             return False
-        rid, ok = getFilename("cc")
+        rid, ok = getReceiptId("cc")
         if not ok:
             return False
 
@@ -488,10 +498,13 @@ def getCfgFn():
     return sys.argv[1]
 
 def runTest():
-    fn="../fm/receipts/2023/FM-R2023-0xx.pdf"
-    reader = PdfReader(fn)
-    page = reader.pages[0]
-    print(page.extract_text())
+    while True:
+        fn, ok = getReceiptId("test")
+        if not ok:
+            return
+        reader = PdfReader(fn)
+        page = reader.pages[0]
+        print(page.extract_text())
 
 # --- main ---
 
