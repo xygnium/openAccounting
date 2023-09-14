@@ -80,7 +80,8 @@ def mkCfg():
             "dbip": None,
             "txid": 1,
             "csvDir": None,
-            "receiptDir": None
+            "receiptDir": None,
+            "stageDir": None
             }
     putCfg()
 
@@ -116,6 +117,9 @@ def putTxid():
     getCfg()
     cfg["txid"] = getTxid()
     putCfg()
+
+def getStageDir():
+    return cfg["stageDir"]
 
 def getConnector(db, usr, pw):
     conn = mariadb.connect(
@@ -309,21 +313,50 @@ def chgImportOldCC(cursor):
 def checkingAccountImportSmallBusBofA(c):
     print("checkingAccountImport")
 
-def csvEngine(rowAct, c, skip):
-    inFile = input("file path: ")
+def csvEngine(user, rowAct, c, skip):
+    inFile, ok = getCsvFile(user)
+    if not ok:
+        return
     print("reading file: %s" % inFile)
     try:
         fh = open(inFile)
     except:
         print("could not open %s" % inFile)
-        return
+        return "", False
     csvreader = islice(csv.reader(fh), skip, None)
     #csvreader = islice(csv.DictReader(fh), skip, None)
     i = 1
     for row in csvreader:
         if not rowAct(row, i):
-            return
+            return inFile, False
         i += 1
+    return inFile, True
+
+csvFileList = []
+
+def getCsvFile(user):
+    # display list of files in cfg csv dir
+    global csvFileList
+    if len(csvFileList) == 0:
+        getCfg()
+        csvFileList = glob.glob(os.path.join(cfg["csvDir"], "*"))
+    # prompt user for file selection
+    i = 0
+    for r in csvFileList:
+        print("%s (%d)" % (r, i+1))
+        i += 1
+    # return file path
+    # input is number in allowed range, or q=quit/skip
+    reply, ok = getInput(user, "file (number or q=quit)", False)
+    if not ok:
+        return "", False
+    # check number for validity
+    select = int(reply) - 1
+    if (select >= 0) and (select < i):
+        return csvFileList[select], True
+
+    print("number is not in range 1..%d" % i-1)
+    return "", False
 
 receiptIdList = []
 
@@ -339,9 +372,12 @@ def getReceiptId(user):
         i += 1
 
     # input is number in allowed range, or q=quit/skip
-    reply, ok = getInput(user, "receipt ID (number or q=quit): ", False)
+    reply, ok = getInput(user, "receipt ID (number or q=quit)", False)
     if not ok:
         return "", False
+    # is reply an index or string?
+    if not reply.isdigit():
+        return reply, True
     # check number for validity
     select = int(reply) - 1
     if (select >= 0) and (select < i):
@@ -364,7 +400,7 @@ def getInput(user, prompt, required):
             print("input required")
 
 def showEntry (i, date, amt, payee, desc, rid, dr, cr):
-    print("%d. date=%s, amt=%s, payee=%s, desc=%s, receiptID=%s, dr=%s, cr=%s" % 
+    print("\n%d. date=%s, amt=%s, payee=%s, desc=%s, receiptID=%s, dr=%s, cr=%s" % 
             (i, date, amt, payee, desc, rid, dr, cr))
 
 def rowActBofaCC(r, i):
@@ -386,21 +422,28 @@ def rowActBofaCC(r, i):
     else:
         # CC purchase
         cr = "210"
+        print("\n%d. date=%s, amt=%s, payee=%s, ccacct=%s" %
+                (i, date, amt, payee, ccacct))
+        rid, ok = getReceiptId("cc")
+        if not ok:
+            return False
         showAcctInfoDR()
-        print("\n%d. date=%s, amt=%s, payee=%s, ccacct=%s" % (i, date, amt, payee, ccacct))
         dr, ok = getInput("cc", "debit account", True)
         if not ok:
             return False
         desc, ok = getInput("cc", "description", False)
         if not ok:
             return False
-        rid, ok = getReceiptId("cc")
-        if not ok:
-            return False
 
     showEntry(i, date, amt, payee, desc, rid, dr, cr)
-    ed = {"index":i, "date":date, "amt":amt, "payee":payee, "desc":desc, "rid":rid, "dr":dr, "cr":cr}
-    #dbEntries.append((i, date, amt, payee, desc, rid, dr, cr))
+    ed = {"index":i,
+            "date":date,
+            "amt":amt,
+            "payee":payee,
+            "desc":desc,
+            "rid":rid,
+            "dr":dr,
+            "cr":cr}
     dbEntries.append(ed)
     #print(dbEntries)
     return True
@@ -409,20 +452,22 @@ def creditCardImportSmallBusBofA(c):
     print("creditCardImport")
     global dbEntries
     dbEntries = []
-    csvEngine(rowActBofaCC, c, 5)
+    csvFn, ok = csvEngine("cc", rowActBofaCC, c, 5)
     # review all entries
-    for e in dbEntries:
-        print()
-        print(e)
+    #for e in dbEntries:
+    #    print()
+    #    print(e)
         #txid = getTxid()
         #drop = mkDrX(txid, e["date"], e["amt"], e["dr"], e["payee"], e["desc"], e["rid"])
         #crop = mkCrX(txid, e["date"], e["amt"], e["cr"], e["payee"], e["desc"], e["rid"])
-        print
-    # write to file as JSON
+    #    print
     j = json.dumps(dbEntries, indent=4)
     print(j)
-    # write json to file
-    with open("x.json", 'w', encoding='utf-8') as fh:
+    # write to file as JSON
+    baseFn = os.path.basename(csvFn)
+    baseFnNoExt = os.path.splitext(baseFn)
+    jsonFn = os.path.join(getStageDir(), baseFnNoExt[0] + ".json")
+    with open(jsonFn, 'w', encoding='utf-8') as fh:
         json.dump(dbEntries, fh, ensure_ascii=False, indent=4)
 
 

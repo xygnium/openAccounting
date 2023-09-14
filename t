@@ -1,1 +1,1 @@
-./oa.py ../testdb.cfg.json
+./oa.py ../fm/testdb.cfg.json
