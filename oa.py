@@ -314,23 +314,48 @@ def checkingAccountImportSmallBusBofA(c):
     print("checkingAccountImport")
 
 def csvEngine(user, rowAct, c, skip):
-    inFile, ok = getCsvFile(user)
+    global dbEntries
+    dbEntries = []
+    csvFn, ok = getCsvFile(user)
     if not ok:
         return
-    print("reading file: %s" % inFile)
+    # make JSON fn
+    baseFn = os.path.basename(csvFn)
+    baseFnNoExt = os.path.splitext(baseFn)
+    jsonFn = os.path.join(getStageDir(), baseFnNoExt[0] + ".json")
+    # if JSON fidbEntries exist; read into dbEntries
+    if os.path.isfile(jsonFn):
+        with open(jsonFn) as fh:
+            dbEntries = json.load(fh)
+    else:
+        dbEntries = []
+    j = len(dbEntries)
+    print("dbEntries len = %d" % j)
+    # open csv file
+    print("reading file: %s" % csvFn)
     try:
-        fh = open(inFile)
+        fh = open(csvFn)
     except:
-        print("could not open %s" % inFile)
+        print("could not open %s" % csvFn)
         return "", False
+    # skip top n rows
     csvreader = islice(csv.reader(fh), skip, None)
     #csvreader = islice(csv.DictReader(fh), skip, None)
+    # process each row in csv file
     i = 1
+    rc = True
     for row in csvreader:
-        if not rowAct(row, i):
-            return inFile, False
+        if j > 0:
+            # skip rows already processed
+            j -= 1
+        elif not rowAct(row, i):
+            rc = False
+            break
         i += 1
-    return inFile, True
+    # write to dbEntries to file as JSON
+    with open(jsonFn, 'w', encoding='utf-8') as fh:
+        json.dump(dbEntries, fh, ensure_ascii=False, indent=4)
+    return csvFn, rc
 
 csvFileList = []
 
@@ -450,9 +475,7 @@ def rowActBofaCC(r, i):
 
 def creditCardImportSmallBusBofA(c):
     print("creditCardImport")
-    global dbEntries
-    dbEntries = []
-    csvFn, ok = csvEngine("cc", rowActBofaCC, c, 5)
+    csvFn, ok = csvEngine("cc", rowActBofaCC, c, skip=5)
     # review all entries
     #for e in dbEntries:
     #    print()
@@ -463,13 +486,6 @@ def creditCardImportSmallBusBofA(c):
     #    print
     j = json.dumps(dbEntries, indent=4)
     print(j)
-    # write to file as JSON
-    baseFn = os.path.basename(csvFn)
-    baseFnNoExt = os.path.splitext(baseFn)
-    jsonFn = os.path.join(getStageDir(), baseFnNoExt[0] + ".json")
-    with open(jsonFn, 'w', encoding='utf-8') as fh:
-        json.dump(dbEntries, fh, ensure_ascii=False, indent=4)
-
 
 def chgAddAccount(dbCursor):
     print("add account")
