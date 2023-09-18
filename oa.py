@@ -9,6 +9,10 @@ from itertools import islice
 from PyPDF2 import PdfReader
 import glob
 
+# local imports
+
+import db
+
 cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
 
 cmdDict = {
@@ -27,25 +31,20 @@ cmdDict = {
         "rb": "db rollback"
         }
 
+# globals (eliminate)
+cfg = {}
 drAcct=[]
 crAcct=[]
 dbEntries=[]
+dbChgAttempt = False
+txid = 0
+csvFileList = []
+stagedFileList = []
+receiptIdList = []
 
 def help():
     for c in cmdDict:
         print("%10s, %s" % (c, cmdDict[c]))
-
-def exitPgm(msg, code):
-    print(msg)
-    sys.exit(code)
-
-def exitAbnormal(msg):
-    dbConn.close()
-    exitPgm(msg, -1)
-
-def exitNormal(conn, msg):
-    conn.close()
-    exitPgm(msg, 0)
 
 def quitWithMsg(msg):
     print(msg)
@@ -53,19 +52,17 @@ def quitWithMsg(msg):
 
 def quit(conn):
     if not dbChanged():
-        exitNormal(conn, "OK")
+        db.exitNormal(conn, "OK")
     commit = input("commit (y|n): ")
     if commit == "y":
         print("changes committed")
         dbCommit(conn)
-        exitNormal(conn, "OK")
+        db.exitNormal(conn, "OK")
     elif commit == "n":
         print("changes NOT committed")
-        exitNormal(conn, "OK")
+        db.exitNormal(conn, "OK")
     else:
         print("need y or n")
-
-cfg = {}
 
 def mkCfg():
     # if not cfg exist
@@ -99,9 +96,7 @@ def testGetTxid():
     print(getTxid())
     print(getTxid())
     print(getTxid())
-    exitPgm("DBG", -1)
-
-txid = 0
+    db.exitPgm("DBG", -1)
 
 def getTxid():
     global txid
@@ -132,6 +127,10 @@ def getConnector(db, usr, pw):
 def getCursor(conn):
     return conn.cursor() 
 
+def dbChangedReset():
+    global dbChgAttempt
+    dbChgAttempt = False
+
 def dbIsChanged():
     global dbChgAttempt
     dbChgAttempt = True
@@ -143,16 +142,18 @@ def dbOp(cursor, op):
     try:
         cursor.execute(op)
     except mariadb.Error as e:
-        exitAbnormal(e)
+        db.exitAbnormal(cursor, e)
 
 def dbCommit(conn):
     print("dbCommit")
     conn.commit()
     putTxid()
+    dbChangedReset()
 
 def dbRollback(conn):
     print("dbRollback")
     conn.rollback()
+    dbChangedReset()
 
 def mkInsertX(txid, date, amt, ccacct, direct, payee, desc, rid):
     op = ("INSERT INTO transactions "
@@ -192,6 +193,14 @@ def getAcct(acctType):
         return "", False
     return acct, True
 
+def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, receiptID):
+    txid = getTxid()
+    drop = mkDrX(txid, date, amt, drAcct, payee, desc, receiptID)
+    crop = mkCrX(txid, date, amt, crAcct, payee, desc, receiptID)
+    dbIsChanged()
+    dbOp(c, drop)
+    dbOp(c, crop)
+
 def chgAddTransaction(cursor):
     print("doInsert")
     date = input("date yyyy-mm-dd: ")
@@ -210,13 +219,7 @@ def chgAddTransaction(cursor):
     receiptID = ""
     if len(receiptNum) == 3:
         receiptID = "FM-R2023-" + receiptNum
-    txid = getTxid()
-    drop = mkDrX(txid, date, amt, drAcct, payee, desc, receiptID)
-    crop = mkCrX(txid, date, amt, crAcct, payee, desc, receiptID)
-    dbIsChanged()
-    dbOp(cursor, drop)
-    dbOp(cursor, crop)
-    # date       | amount   | account | direction | payee | descrip | receiptid
+    pushTxToDb(cursor, date, amt, drAcct, crAcct, payee, desc, receiptID)
 
 def confirmZero(c):
     op = ("select "
@@ -280,7 +283,10 @@ def fixAmt(amt):
 
 def chgImportOldCC(cursor):
     print("CCimportOld")
-    inFile = input("file path: ")
+    inFile, ok = getCsvFile("ccold")
+    if not ok:
+        return
+    #inFile = input("file path: ")
     print("reading file: %s" % inFile)
     try:
         fh = open(inFile)
@@ -290,6 +296,9 @@ def chgImportOldCC(cursor):
     csvreader = csv.reader(fh)
     for row in csvreader:
         #print(row)
+        if row[0] == "210":
+            print("skip pmts to CC")
+            continue
         date, ok = fixDate(row[5])
         if not ok:
             print("import aborted")
@@ -303,15 +312,7 @@ def chgImportOldCC(cursor):
         receiptID = ""
         if len(row[2]) > 0:
             receiptID = "FM-R2023-" + row[2]
-        txid = getTxid()
-        drop = mkDrX(txid, date, amt, drAcct, payee, desc, receiptID)
-        crop = mkCrX(txid, date, amt, crAcct, payee, desc, receiptID)
-        dbIsChanged()
-        dbOp(cursor, drop)
-        dbOp(cursor, crop)
-
-def checkingAccountImportSmallBusBofA(c):
-    print("checkingAccountImport")
+        pushTxToDb(cursor, date, amt, drAcct, crAcct, payee, desc, receiptID)
 
 def csvEngine(user, rowAct, c, skip):
     global dbEntries
@@ -357,17 +358,12 @@ def csvEngine(user, rowAct, c, skip):
         json.dump(dbEntries, fh, ensure_ascii=False, indent=4)
     return csvFn, rc
 
-csvFileList = []
+#def getFileList(fDir, user):
 
-def getCsvFile(user):
-    # display list of files in cfg csv dir
-    global csvFileList
-    if len(csvFileList) == 0:
-        getCfg()
-        csvFileList = glob.glob(os.path.join(cfg["csvDir"], "*"))
+def getFileByIndex(fList, user):
     # prompt user for file selection
     i = 0
-    for r in csvFileList:
+    for r in fList:
         print("%s (%d)" % (r, i+1))
         i += 1
     # return file path
@@ -378,12 +374,26 @@ def getCsvFile(user):
     # check number for validity
     select = int(reply) - 1
     if (select >= 0) and (select < i):
-        return csvFileList[select], True
+        return fList[select], True
 
     print("number is not in range 1..%d" % i-1)
     return "", False
 
-receiptIdList = []
+def getCsvFile(user):
+    # display list of files in cfg csv dir
+    global csvFileList
+    if len(csvFileList) == 0:
+        getCfg()
+        csvFileList = glob.glob(os.path.join(cfg["csvDir"], "*"))
+    return getFileByIndex(csvFileList, user)
+
+def getStagedFile(user):
+    # display list of files in cfg csv dir
+    global stagedFileList
+    if len(stagedFileList) == 0:
+        getCfg()
+        csvFileList = glob.glob(os.path.join(cfg["stageDir"], "*"))
+    return getFileByIndex(csvFileList, user)
 
 def getReceiptId(user):
     global receiptIdList
@@ -438,12 +448,8 @@ def rowActBofaCC(r, i):
     payee = r[5]
     amt = fixAmt(r[6])
     if ccacct == "1327":
-        cr = "110"
-        dr = "210"
-        # cc payments - input not needed
-        payee = "BofA"
-        desc = "CC payment"
-        rid = ""
+        # ignore, pmts are reported in checking csv
+        return True
     else:
         # CC purchase
         cr = "210"
@@ -476,16 +482,36 @@ def rowActBofaCC(r, i):
 def creditCardImportSmallBusBofA(c):
     print("creditCardImport")
     csvFn, ok = csvEngine("cc", rowActBofaCC, c, skip=5)
-    # review all entries
-    #for e in dbEntries:
-    #    print()
-    #    print(e)
-        #txid = getTxid()
-        #drop = mkDrX(txid, e["date"], e["amt"], e["dr"], e["payee"], e["desc"], e["rid"])
-        #crop = mkCrX(txid, e["date"], e["amt"], e["cr"], e["payee"], e["desc"], e["rid"])
-    #    print
     j = json.dumps(dbEntries, indent=4)
     print(j)
+
+def rowActBofaChkAcct(r, i):
+    print("%d." % i)
+    print(r)
+    amt = r[2]
+    if len(amt) == 0:
+        # ignore line
+        print("ignoring entry")
+        return True
+    showAcctInfoCR()
+    showAcctInfoDR()
+    if amt[0] == "-":
+        amt = amt[1:]
+        cr = "110"
+        dr, ok = getInput("ck", "debit account", True)
+        if not ok:
+            return False
+    else:
+        cr, ok = getInput("ck", "credit account", True)
+        dr = "110"
+    print("%d. date=%s, payee=%s, amt=%s, cr=%s, dr=%s" % (i, r[0], r[1], amt, cr, dr))
+    return True
+
+def checkingAccountImportSmallBusBofA(c):
+    print("checkingAccountImport")
+    csvEngine("ck", rowActBofaChkAcct, c, skip=7)
+    #j = json.dumps(dbEntries, indent=4)
+    #print(j)
 
 def chgAddAccount(dbCursor):
     print("add account")
@@ -508,7 +534,7 @@ def chgAddAccount(dbCursor):
 
 def printAcctInfo(a, drcr):
     for i in a:
-        print("%18s, %3s, %2s, %2s" % (i[0], i[1], drcr, i[2]))
+        print("%24s, %3s, %2s, %2s" % (i[0], i[1], drcr, i[2]))
 
 def showAcctInfoDR():
     printAcctInfo(drAcct, "DR")
@@ -538,7 +564,7 @@ def readCreds(db):
     try:
         csvfile = open("creds.csv", "r")
     except:
-        exitPgm("failed to open cred file", -1)
+        db.exitPgm("failed to open cred file", -1)
 
     csvreader = csv.reader(csvfile)
     # skip header
@@ -551,7 +577,7 @@ def readCreds(db):
 
 def showSyntax(msg):
     print("Usage: oa.py <optional path>/<cfg fn>")
-    exitPgm(msg, -1)
+    db.exitPgm(msg, -1)
 
 def getCfgFn():
     if len(sys.argv) != 2:
@@ -567,6 +593,26 @@ def runTest():
         page = reader.pages[0]
         print(page.extract_text())
 
+def inx(cursor):
+    # select json file
+    fn, ok = getStagedFile("inx")
+    if not ok:
+        return
+    print("transaction file=%s" % fn)
+    # read transaction json file
+    with open(fn, 'r') as fh:
+        txList = json.load(fh)
+    # convert each transaction entry into DR and CR ops
+    for tx in txList:
+        print(tx)
+        # run db ops
+        date, ok = fixDate(tx["date"])
+        if not ok:
+            exitAbnormal(c, "bad date format")
+        amt = fixAmt(tx["amt"])
+        rid = os.path.basename(tx["rid"])
+        pushTxToDb(cursor, date, amt, tx["dr"], tx["cr"], tx["payee"], tx["desc"], rid)
+
 # --- main ---
 
 print("mariadb frontend for simple accounting, v0.0")
@@ -581,9 +627,8 @@ getCfg()
 #dbConn = getConnector(creds[1], creds[2], creds[0])
 dbConn = getConnector(cfg["db"], cfg["dbuid"], cfg["dbpswd"])
 dbCursor = getCursor(dbConn)
-dbChgAttempt = False
 getAccounts(dbCursor)
-#exitAbnormal("DBG")
+#db.exitAbnormal("DBG")
 
 while True:
     cmd = input("cmd: ")
@@ -596,7 +641,7 @@ while True:
     elif cmd == "cc":
         creditCardImportSmallBusBofA(dbCursor)
     elif cmd == "inx":
-        print("not implemented yet")
+        inx(dbCursor)
     elif cmd == "ccold":
         chgImportOldCC(dbCursor)
     elif cmd == "addac":
