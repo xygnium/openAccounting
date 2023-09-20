@@ -385,6 +385,7 @@ def getCsvFile(user):
     if len(csvFileList) == 0:
         getCfg()
         csvFileList = glob.glob(os.path.join(cfg["csvDir"], "*"))
+        #csvFileList = glob.glob(os.path.join(cfg["csvDir"], "fm*"))
     return getFileByIndex(csvFileList, user)
 
 def getStagedFile(user):
@@ -504,14 +505,30 @@ def rowActBofaChkAcct(r, i):
     else:
         cr, ok = getInput("ck", "credit account", True)
         dr = "110"
-    print("%d. date=%s, payee=%s, amt=%s, cr=%s, dr=%s" % (i, r[0], r[1], amt, cr, dr))
+    desc, ok = getInput("cc", "description", False)
+    if not ok:
+        return False
+    print("%d. date=%s, payee=%s, amt=%s, desc=%s, cr=%s, dr=%s" % (i, r[0], r[1], amt, desc, cr, dr))
+    date=r[0]
+    payee=r[1][:65]
+    rid=""
+    showEntry(i, date, amt, payee, desc, rid, dr, cr)
+    ed = {"index":i,
+            "date":date,
+            "amt":amt,
+            "payee":payee,
+            "desc":desc,
+            "rid":rid,
+            "dr":dr,
+            "cr":cr}
+    dbEntries.append(ed)
     return True
 
 def checkingAccountImportSmallBusBofA(c):
     print("checkingAccountImport")
-    csvEngine("ck", rowActBofaChkAcct, c, skip=7)
-    #j = json.dumps(dbEntries, indent=4)
-    #print(j)
+    csvEngine("ck", rowActBofaChkAcct, c, skip=0)
+    j = json.dumps(dbEntries, indent=4)
+    print(j)
 
 def chgAddAccount(dbCursor):
     print("add account")
@@ -584,6 +601,42 @@ def getCfgFn():
         showSyntax("missing cfg fn")
     return sys.argv[1]
 
+lc = 0
+fc = 0
+def mkSplitFile(fn, line, linesPerFile):
+    global lc, fc
+    basefn = os.path.basename(fn)
+    fndir = os.path.dirname(fn)
+    lfn = os.path.join(fndir, str(fc) + basefn)
+    if lc == 0:
+        if os.path.isfile(lfn):
+            os.remove(lfn)
+    sline = ','.join(line) + "\n"
+    with open(lfn, "a") as fh:
+        fh.write(sline)
+    lc = lc + 1
+    if lc == linesPerFile:
+        lc = 0
+        fc = fc + 1
+
+def splitCsv():
+    print("split")
+    inFile, ok = getCsvFile("split")
+    if not ok:
+        return
+    print("reading file: %s" % inFile)
+    try:
+        fh = open(inFile)
+    except:
+        print("could not open %s" % inFile)
+        return
+    # skip top n rows
+    skip=8
+    linesPerFile=4
+    csvreader = islice(csv.reader(fh), skip, None)
+    for row in csvreader:
+        mkSplitFile(inFile, row, linesPerFile)
+
 def runTest():
     while True:
         fn, ok = getReceiptId("test")
@@ -611,7 +664,8 @@ def inx(cursor):
             exitAbnormal(c, "bad date format")
         amt = fixAmt(tx["amt"])
         rid = os.path.basename(tx["rid"])
-        pushTxToDb(cursor, date, amt, tx["dr"], tx["cr"], tx["payee"], tx["desc"], rid)
+        payee =  tx["payee"][:64]
+        pushTxToDb(cursor, date, amt, tx["dr"], tx["cr"], payee, tx["desc"], rid)
 
 # --- main ---
 
@@ -658,6 +712,8 @@ while True:
         dbCommit(dbConn)
     elif cmd == "rb":
         dbRollback(dbConn)
+    elif cmd == "split":
+        splitCsv()
     elif cmd == "test":
         runTest()
     else:
