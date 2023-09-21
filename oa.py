@@ -443,6 +443,8 @@ def rowActBofaCC(r, i):
     global dbEntries
     print()
     print(r)
+    if not verifyListLen("BofA CC csv row", r, 11):
+        return False
     print()
     ccacct = r[1]
     date = r[3]
@@ -486,9 +488,19 @@ def creditCardImportSmallBusBofA(c):
     j = json.dumps(dbEntries, indent=4)
     print(j)
 
+def verifyListLen(label, r, expLen):
+    print(r)
+    listLen = len(r)
+    print("%s len=%d, expected=%d" % (label, listLen, expLen))
+    if listLen != expLen:
+        print("ERROR:%s len not %d" % (label, expLen))
+        return False
+    return True
+
 def rowActBofaChkAcct(r, i):
     print("%d." % i)
-    print(r)
+    if not verifyListLen("BofA Checking csv row", r, 4):
+        return False
     amt = r[2]
     if len(amt) == 0:
         # ignore line
