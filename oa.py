@@ -22,6 +22,10 @@ cmdDict = {
         "ck": "make transactions input file from csv file downloaded from BofA checking account",
         "inx": "chg db - import transactions input file",
         "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
+        "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
+        "sgcc": "stage credit card pipe delimited csv file",
+        "sgck": "stage checking account pipe delimited csv file",
+        "esg": "edit stage table entries",
         "shbal": "show balance",
         "shac": "show account info",
         "addac": "chg db - add account",
@@ -63,6 +67,13 @@ def quit(conn):
         db.exitNormal(conn, "OK")
     else:
         print("need y or n")
+    return
+
+def proceed():
+    reply =  input("proceed(y:N)?: ")
+    if reply == "y":
+        return True
+    return False
 
 def mkCfg():
     # if not cfg exist
@@ -154,19 +165,51 @@ def dbRollback(conn):
     print("dbRollback")
     conn.rollback()
     dbChangedReset()
+    return
 
-def mkInsertX(txid, date, amt, ccacct, direct, payee, desc, rid):
-    op = ("INSERT INTO transactions "
-            "(txid, date,amount,account,direction,payee,descrip,receiptid) VALUES "
-            "(" + str(txid) + ",\"" + date + "\"," + amt + "," + ccacct + "," + direct + ",\"" + payee + "\",\"" + desc + "\",\"" + rid + "\");")
+DQ = "\""
+COMMA = ","
+COMMA_DQ = ",\""
+DQ_COMMA = "\","
+SEMI = ";"
+
+def mkUpdateStageRidOp(eid, rid):
+    op = ("UPDATE stage "
+            "SET receiptid=" + DQ + rid + DQ + COMMA
+            + "status=" + DQ + "review" + DQ
+            + " WHERE entry=" + eid + SEMI
+            )
     print("op=%s" % op)
     return op
 
-def mkDrX(txid, date, amt, ccacct, payee, desc, rid):
-    return mkInsertX(txid, date, amt, ccacct, "1", payee, desc, rid)
+def mkInsertStageOp(date, amt, payee, desc, rid, dr, cr):
+    op = ("INSERT INTO stage  "
+            "(date, amount, DR_account, CR_account, payee_payer, descrip, receiptid, status) VALUES "
+            "("
+            + DQ + date + DQ + COMMA
+            + amt + COMMA
+            + dr + COMMA
+            + cr + COMMA
+            + DQ + payee + DQ + COMMA
+            + DQ + desc + DQ + COMMA
+            + DQ + rid + DQ + COMMA
+            + DQ + "new" + DQ + ");"
+            )
+    print("op=%s" % op)
+    return op
 
-def mkCrX(txid, date, amt, ccacct, payee, desc, rid):
-    return mkInsertX(txid, date, amt, ccacct, "-1", payee, desc, rid)
+def mkInsertX(txid, date, amt, acct, direct, payee, desc, rid):
+    op = ("INSERT INTO transactions "
+            "(txid, date,amount,account,direction,payee,descrip,receiptid) VALUES "
+            "(" + str(txid) + ",\"" + date + "\"," + amt + "," + acct + "," + direct + ",\"" + payee + "\",\"" + desc + "\",\"" + rid + "\");")
+    print("op=%s" % op)
+    return op
+
+def mkDrX(txid, date, amt, acct, payee, desc, rid):
+    return mkInsertX(txid, date, amt, acct, "1", payee, desc, rid)
+
+def mkCrX(txid, date, amt, acct, payee, desc, rid):
+    return mkInsertX(txid, date, amt, acct, "-1", payee, desc, rid)
 
 def errorReturn(msg):
     print("ERROR:%s" % msg)
@@ -274,12 +317,23 @@ def remEnc(inx, dchar):
         return inx[1:-1]
     return inx
 
+def removeChars(s):
+    s = s.replace(DQ, "")
+    return s
+
 def fixAmt(amt):
     amt = remEnc(amt, "\"")
     amt = remEnc(amt, "(")
     amt = amt.replace(",", "")
     amt = amt.replace("-", "")
     return amt
+
+def absoluteAmt(amt):
+    negative = False
+    if amt[0] == "-":
+        negative = True
+        amt = amt[1:]
+    return amt, negative
 
 def chgImportOldCC(cursor):
     print("CCimportOld")
@@ -289,7 +343,7 @@ def chgImportOldCC(cursor):
     #inFile = input("file path: ")
     print("reading file: %s" % inFile)
     try:
-        fh = open(inFile)
+        fh = open(inFile, newline='')
     except:
         print("could not open %s" % inFile)
         return
@@ -335,12 +389,12 @@ def csvEngine(user, rowAct, c, skip):
     # open csv file
     print("reading file: %s" % csvFn)
     try:
-        fh = open(csvFn)
+        fh = open(csvFn, newline='')
     except:
         print("could not open %s" % csvFn)
         return "", False
     # skip top n rows
-    csvreader = islice(csv.reader(fh), skip, None)
+    csvreader = islice(csv.reader(fh, delimiter="|"), skip, None)
     #csvreader = islice(csv.DictReader(fh), skip, None)
     # process each row in csv file
     i = 1
@@ -522,7 +576,7 @@ def rowActBofaChkAcct(r, i):
         return False
     print("%d. date=%s, payee=%s, amt=%s, desc=%s, cr=%s, dr=%s" % (i, r[0], r[1], amt, desc, cr, dr))
     date=r[0]
-    payee=r[1][:65]
+    payee=r[1][:64]
     rid=""
     showEntry(i, date, amt, payee, desc, rid, dr, cr)
     ed = {"index":i,
@@ -591,7 +645,7 @@ def getAccounts(c):
 
 def readCreds(db):
     try:
-        csvfile = open("creds.csv", "r")
+        csvfile = open("creds.csv", "r", newline='')
     except:
         db.exitPgm("failed to open cred file", -1)
 
@@ -638,7 +692,7 @@ def splitCsv():
         return
     print("reading file: %s" % inFile)
     try:
-        fh = open(inFile)
+        fh = open(inFile, "r", newline='')
     except:
         print("could not open %s" % inFile)
         return
@@ -678,6 +732,132 @@ def inx(cursor):
         rid = os.path.basename(tx["rid"])
         payee =  tx["payee"][:64]
         pushTxToDb(cursor, date, amt, tx["dr"], tx["cr"], payee, tx["desc"], rid)
+    return
+
+def error(msg):
+    print("ERROR:" + msg)
+    return
+
+def warn(msg):
+    print("WARNING:" + msg)
+    return
+
+def checkColumnCount(r, cnt):
+    if len(r) != cnt:
+        print(r)
+        error("column count is %d; expected %d" % (len(r), cnt))
+        return False
+    return True
+
+def csvEngine2(user, rowMethod, skip):
+    csvFn, ok = getCsvFile(user)
+    if not ok:
+        return False
+    # open csv file
+    print("reading file: %s" % csvFn)
+    try:
+        fh = open(csvFn, newline='')
+    except:
+        print("could not open %s" % csvFn)
+        return False
+    # skip top n rows
+    csvreader = islice(csv.reader(fh, delimiter="|"), skip, None)
+    #csvreader = islice(csv.DictReader(fh), skip, None)
+    i = 1
+    for row in csvreader:
+        if not rowMethod(row, i):
+            return False
+        i = i + 1
+    return True
+
+def rowStageCreditCardCsv(r, i):
+    cfgColumnCount = 11
+    if not checkColumnCount(r, cfgColumnCount):
+        return False
+    ccacct = r[1]
+    date = r[3]
+    date, ok = fixDate(date)
+    if not ok:
+        return False
+    payee = removeChars(r[5][:64])
+    transType = r[9]
+    if (ccacct == "1327") and (transType == "C"):
+        print(r)
+        warn("ignoring row; pmt to cc are recorded in checking account")
+        return True
+    amt, isNegative = absoluteAmt(r[6])
+    if isNegative:
+        cr = "000"
+        dr = "210"
+    else:
+        cr = "210"
+        dr = "000"
+    rid = "tbd"
+    desc = "tbd"
+    showEntry(i, date, amt, payee, desc, rid, dr, cr)
+    op = mkInsertStageOp(date, amt, payee, desc, rid, dr, cr)
+    dbIsChanged()
+    dbOp(dbCursor, op)
+    return True
+
+def stageCreditCardCsv():
+    print("stageCreditCardCsv")
+    csvEngine2("ck", rowStageCreditCardCsv, skip=5)
+    return
+
+def rowStageCheckingCsv(r, i):
+    cfgColumnCount = 4
+    if not checkColumnCount(r, cfgColumnCount):
+        return False
+    amt = r[2]
+    if len(amt) == 0:
+        print(r)
+        warn("ignoring null amount entry")
+        return True
+    amt, isNegative = absoluteAmt(amt)
+    if isNegative:
+        cr = "110"
+        dr = "000"
+    else:
+        cr = "000"
+        dr = "110"
+    desc = "tbd"
+    date=r[0]
+    date, ok = fixDate(date)
+    if not ok:
+        return False
+    payee = removeChars(r[1][:64])
+    rid = "tbd"
+    showEntry(i, date, amt, payee, desc, rid, dr, cr)
+    op = mkInsertStageOp(date, amt, payee, desc, rid, dr, cr)
+    dbIsChanged()
+    dbOp(dbCursor, op)
+    return True
+
+def stageCheckingCsv():
+    print("stageCheckingCsv")
+    csvEngine2("ck", rowStageCheckingCsv, skip=8)
+    return
+
+def stageEdit():
+    print("stageEdit")
+    # get stage row by entry
+    entry = input("stage table entry number: ")
+    op = ("SELECT * FROM stage WHERE entry = " + entry + SEMI)
+    print("op=%s" % op)
+    dbOp(dbCursor, op)
+    for i in dbCursor:
+        print(i)
+        for f in i:
+            print(f)
+    # get new info
+    rid = input("rid: ")
+    status = "review"
+    op = mkUpdateStageRidOp(entry, rid)
+    # put stage row
+    #dbOp(dbCursor, op)
+    #dbConn.commit()
+    return
 
 # --- main ---
 
@@ -710,6 +890,12 @@ while True:
         inx(dbCursor)
     elif cmd == "ccold":
         chgImportOldCC(dbCursor)
+    elif cmd == "sgcc":
+        stageCreditCardCsv()
+    elif cmd == "sgck":
+        stageCheckingCsv()
+    elif cmd == "esg":
+        stageEdit()
     elif cmd == "addac":
         chgAddAccount(dbCursor)
     elif cmd == "shac":
