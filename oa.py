@@ -26,6 +26,7 @@ cmdDict = {
         "sgcc": "stage credit card pipe delimited csv file",
         "sgck": "stage checking account pipe delimited csv file",
         "esg": "edit stage table entries",
+        "rsg": "review stage table entries",
         "shbal": "show balance",
         "shac": "show account info",
         "addac": "chg db - add account",
@@ -37,6 +38,7 @@ cmdDict = {
 
 # globals (eliminate)
 cfg = {}
+acctDict={}
 drAcct=[]
 crAcct=[]
 dbEntries=[]
@@ -172,6 +174,20 @@ COMMA = ","
 COMMA_DQ = ",\""
 DQ_COMMA = "\","
 SEMI = ";"
+SELECT_ALL_FROM = "SELECT * FROM "
+SELECT_ALL_FROM_STAGE = SELECT_ALL_FROM + "stage"
+WHERE_STATUS = " WHERE status="
+WHERE_STATUS_IS_NEW = WHERE_STATUS + DQ + "new" + DQ
+WHERE_STATUS_IS_REVIEW = WHERE_STATUS + DQ + "review" + DQ
+ORDER_BY_DATE = " ORDER BY date" + SEMI
+
+def mkUpdateStageStatusOp(eid, stat):
+    op = ("UPDATE stage "
+            "SET status=" + DQ + stat + DQ
+            + " WHERE entry=" + eid + SEMI
+            )
+    print("op=%s" % op)
+    return op
 
 def mkUpdateStageRidOp(eid, rid):
     op = ("UPDATE stage "
@@ -630,18 +646,21 @@ def showAccounts():
     showAcctInfoCR()
 
 def getAccounts(c):
+    global acctDict
     global drAcct
     global crAcct
 
     op = "SELECT * FROM accounts ORDER BY number;"
     dbOp(c, op)
     for i in c:
+        acctDict[i[1]] = i[0]
         if i[2] == 1:
             drAcct.append(i)
         else:
             crAcct.append(i)
     #print(drAcct)
     #print(crAcct)
+    #print(acctDict)
 
 def readCreds(db):
     try:
@@ -839,6 +858,50 @@ def stageCheckingCsv():
     csvEngine2("ck", rowStageCheckingCsv, skip=8)
     return
 
+def printStageRow(r):
+    print("-----------------------------------------")
+    print("%12s: %s" % ("entry", r[0]))
+    print("%12s: %s" % ("date", r[1]))
+    print("%12s: %s" % ("amount", r[2]))
+    print("%12s: %s %s" % ("DR_account", r[3], acctDict[r[3]]))
+    print("%12s: %s %s" % ("CR_account", r[4], acctDict[r[4]]))
+    print("%12s: %s" % ("payee_payer", r[5]))
+    print("%12s: %s" % ("descrip", r[6]))
+    print("%12s: %s" % ("receiptid", r[7]))
+    print("%12s: %s" % ("status", r[8]))
+#      entry: 441
+#       date: 2022-12-30
+#     amount: 500.00
+# DR_account: 0
+# CR_account: 110
+#payee_payer: Zelle Transfer Conf# d94mvrik6; Mueller, Gabriel
+#    descrip: tbd
+#  receiptid: tbd
+#     status: delete
+
+def cursorToList():
+    ilist = []
+    for i in dbCursor:
+        ilist.append(i)
+    return ilist
+
+def stageReview():
+    print("stageReview")
+    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_REVIEW + ORDER_BY_DATE
+    print("op=%s" % op)
+    dbOp(dbCursor, op)
+    selectList = cursorToList()
+    for i in selectList:
+        printStageRow(i)
+        reply = input("change status to ready? (y/n/q CR=n): ")
+        if reply == "y":
+            op = mkUpdateStageStatusOp(str(i[0]), "ready")
+            dbOp(dbCursor, op)
+            dbConn.commit()
+        elif reply == "q":
+            break
+    return
+
 def stageEdit():
     print("stageEdit")
     # get stage row by entry
@@ -852,11 +915,11 @@ def stageEdit():
             print(f)
     # get new info
     rid = input("rid: ")
-    status = "review"
+    #status = "review"
     op = mkUpdateStageRidOp(entry, rid)
     # put stage row
-    #dbOp(dbCursor, op)
-    #dbConn.commit()
+    dbOp(dbCursor, op)
+    dbConn.commit()
     return
 
 # --- main ---
@@ -896,6 +959,8 @@ while True:
         stageCheckingCsv()
     elif cmd == "esg":
         stageEdit()
+    elif cmd == "rsg":
+        stageReview()
     elif cmd == "addac":
         chgAddAccount(dbCursor)
     elif cmd == "shac":
@@ -908,6 +973,7 @@ while True:
         chgAddTransaction(dbCursor)
     elif cmd == "ct":
         dbCommit(dbConn)
+        getAccounts(dbCursor)
     elif cmd == "rb":
         dbRollback(dbConn)
     elif cmd == "split":
