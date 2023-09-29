@@ -25,6 +25,7 @@ cmdDict = {
         "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
         "sgcc": "stage credit card pipe delimited csv file",
         "sgck": "stage checking account pipe delimited csv file",
+        "nsg": "new stage table entry",
         "esg": "edit stage table entries",
         "rsg": "review stage table entries",
         "shbal": "show balance",
@@ -46,7 +47,7 @@ dbChgAttempt = False
 txid = 0
 csvFileList = []
 stagedFileList = []
-receiptIdList = []
+invoiceIdList = []
 
 def help():
     for c in cmdDict:
@@ -56,7 +57,7 @@ def quitWithMsg(msg):
     print(msg)
     return -1
 
-def quit(conn):
+def shutdown(conn):
     if not dbChanged():
         db.exitNormal(conn, "OK")
     commit = input("commit (y|n): ")
@@ -90,7 +91,7 @@ def mkCfg():
             "dbip": None,
             "txid": 1,
             "csvDir": None,
-            "receiptDir": None,
+            "invoiceDir": None,
             "stageDir": None
             }
     putCfg()
@@ -189,18 +190,18 @@ def mkUpdateStageStatusOp(eid, stat):
     print("op=%s" % op)
     return op
 
-def mkUpdateStageRidOp(eid, rid):
+def mkUpdateStageRidOp(eid, invid):
     op = ("UPDATE stage "
-            "SET receiptid=" + DQ + rid + DQ + COMMA
+            "SET invoiceid=" + DQ + invid + DQ + COMMA
             + "status=" + DQ + "review" + DQ
             + " WHERE entry=" + eid + SEMI
             )
     print("op=%s" % op)
     return op
 
-def mkInsertStageOp(date, amt, payee, desc, rid, dr, cr):
+def mkInsertStageOp(date, amt, payee, desc, invid, dr, cr):
     op = ("INSERT INTO stage  "
-            "(date, amount, DR_account, CR_account, payee_payer, descrip, receiptid, status) VALUES "
+            "(date, amount, DR_account, CR_account, payee_payer, descrip, invoiceid, status) VALUES "
             "("
             + DQ + date + DQ + COMMA
             + amt + COMMA
@@ -208,27 +209,27 @@ def mkInsertStageOp(date, amt, payee, desc, rid, dr, cr):
             + cr + COMMA
             + DQ + payee + DQ + COMMA
             + DQ + desc + DQ + COMMA
-            + DQ + rid + DQ + COMMA
+            + DQ + invid + DQ + COMMA
             + DQ + "new" + DQ + ");"
             )
     print("op=%s" % op)
     return op
 
-def mkInsertX(txid, date, amt, acct, direct, payee, desc, rid):
+def mkInsertX(txid, date, amt, acct, direct, payee, desc, invid):
     op = ("INSERT INTO transactions "
-            "(txid, date,amount,account,direction,payee,descrip,receiptid) VALUES "
-            "(" + str(txid) + ",\"" + date + "\"," + amt + "," + acct + "," + direct + ",\"" + payee + "\",\"" + desc + "\",\"" + rid + "\");")
+            "(txid, date,amount,account,direction,payee,descrip,invoiceid) VALUES "
+            "(" + str(txid) + ",\"" + date + "\"," + amt + "," + acct + "," + direct + ",\"" + payee + "\",\"" + desc + "\",\"" + invid + "\");")
     print("op=%s" % op)
     return op
 
-def mkDrX(txid, date, amt, acct, payee, desc, rid):
-    return mkInsertX(txid, date, amt, acct, "1", payee, desc, rid)
+def mkDrX(txid, date, amt, acct, payee, desc, invid):
+    return mkInsertX(txid, date, amt, acct, "1", payee, desc, invid)
 
-def mkCrX(txid, date, amt, acct, payee, desc, rid):
-    return mkInsertX(txid, date, amt, acct, "-1", payee, desc, rid)
+def mkCrX(txid, date, amt, acct, payee, desc, invid):
+    return mkInsertX(txid, date, amt, acct, "-1", payee, desc, invid)
 
 def errorReturn(msg):
-    print("ERROR:%s" % msg)
+    error(msg)
     return False
 
 def fixDate(inDate):
@@ -239,23 +240,69 @@ def fixDate(inDate):
         outDate = p[2] + "-" + p[0] + "-" + p[1]
         return outDate, True
 
-def validateAcct(acct):
-    if len(acct) != 3:
-        return errorReturn("acct must be 3 digits: %s" % acct)
+def printAcctInfo(a, drcr):
+    for i in a:
+        print("%24s, %3s, %2s, %2s" % (i[0], i[1], drcr, i[2]))
+
+def showAcctInfoDR():
+    printAcctInfo(drAcct, "DR")
+
+def showAcctInfoCR():
+    printAcctInfo(crAcct, "CR")
+
+def showAccounts():
+    showAcctInfoDR()
+    showAcctInfoCR()
+
+def getAccounts(c):
+    global acctDict
+    global drAcct
+    global crAcct
+
+    op = "SELECT * FROM accounts ORDER BY number;"
+    dbOp(c, op)
+    for i in c:
+        acctDict[i[1]] = i[0]
+        if i[2] == 1:
+            drAcct.append(i)
+        else:
+            crAcct.append(i)
+    #print(drAcct)
+    #print(crAcct)
+    #print(acctDict)
+
+def validateExistingAcct(acct):
+    if not validateNewAcct(acct):
+        return False
+    print("acct=%s, dict entry=%s" % (acct, acctDict[int(acct)]))
+    if not int(acct) in acctDict:
+        return errorReturn("account value (%s) not in list" % acct)
+    return True
+    
+def validateNewAcct(acct):
     if not acct.isdigit():
         return errorReturn("acct must be digits: %s" % acct)
+    if len(acct) != 3:
+        return errorReturn("acct must be 3 digits: %s" % acct)
     return True
 
-def getAcct(acctType):
-    acct = input("%s account: " % acctType)
-    if not validateAcct(acct):
+def getAcct(prompt):
+    acct = input("%s account: " % prompt)
+    if quit(acct):
+        return "", False
+    if not validateExistingAcct(acct):
         return "", False
     return acct, True
 
-def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, receiptID):
+def inputAccountValue(prompt, showAcctList):
+    if showAcctList:
+        showAccounts()
+    return getAcct(prompt)
+
+def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, invoiceID):
     txid = getTxid()
-    drop = mkDrX(txid, date, amt, drAcct, payee, desc, receiptID)
-    crop = mkCrX(txid, date, amt, crAcct, payee, desc, receiptID)
+    drop = mkDrX(txid, date, amt, drAcct, payee, desc, invoiceID)
+    crop = mkCrX(txid, date, amt, crAcct, payee, desc, invoiceID)
     dbIsChanged()
     dbOp(c, drop)
     dbOp(c, crop)
@@ -272,13 +319,13 @@ def chgAddTransaction(cursor):
         return
     desc = input("desc: ")
     payee = input("payee: ")
-    receiptNum = input("receipt # with leading zeros: ")
+    invoiceNum = input("invoice # with leading zeros: ")
     if drAcct == crAcct:
         return errorReturn("ERROR: debit account cannot be same as credit account")
-    receiptID = ""
-    if len(receiptNum) == 3:
-        receiptID = "FM-R2023-" + receiptNum
-    pushTxToDb(cursor, date, amt, drAcct, crAcct, payee, desc, receiptID)
+    invoiceID = ""
+    if len(invoiceNum) == 3:
+        invoiceID = "FM-R2023-" + invoiceNum
+    pushTxToDb(cursor, date, amt, drAcct, crAcct, payee, desc, invoiceID)
 
 def confirmZero(c):
     op = ("select "
@@ -345,11 +392,29 @@ def fixAmt(amt):
     return amt
 
 def absoluteAmt(amt):
-    negative = False
+    isnegative = False
+    ismoney = False
+    parts = amt.split(".")
+    plen = len(parts)
+    if ((plen < 1) or (plen > 2)):
+        print("amount is malformed: %s" % amt)
+        return 0, isnegative, ismoney
+    dollars = parts[0]
+    if not dollars.isdecimal():
+        print("dollar amount is not a number: %s" % dollars)
+    if plen == 2:
+        cents = parts[1]
+        if not cents.isdecimal():
+            print("cents amount is not a number: %s" % cents)
+            return 0, isnegative, ismoney
+        if len(cents) > 2:
+            print("cents amount is not a two digit number: %s" % cents)
+            return 0, isnegative, ismoney
+    ismoney = True
     if amt[0] == "-":
-        negative = True
+        isnegative = True
         amt = amt[1:]
-    return amt, negative
+    return amt, isnegative, ismoney
 
 def chgImportOldCC(cursor):
     print("CCimportOld")
@@ -379,10 +444,10 @@ def chgImportOldCC(cursor):
         payee = row[6]
         desc = row[9]
         print("DBG: desc=%s" % desc)
-        receiptID = ""
+        invoiceID = ""
         if len(row[2]) > 0:
-            receiptID = "FM-R2023-" + row[2]
-        pushTxToDb(cursor, date, amt, drAcct, crAcct, payee, desc, receiptID)
+            invoiceID = "FM-R2023-" + row[2]
+        pushTxToDb(cursor, date, amt, drAcct, crAcct, payee, desc, invoiceID)
 
 def csvEngine(user, rowAct, c, skip):
     global dbEntries
@@ -466,19 +531,19 @@ def getStagedFile(user):
         csvFileList = glob.glob(os.path.join(cfg["stageDir"], "*"))
     return getFileByIndex(csvFileList, user)
 
-def getReceiptId(user):
-    global receiptIdList
-    if len(receiptIdList) == 0:
+def getInvoiceId(user):
+    global invoiceIdList
+    if len(invoiceIdList) == 0:
         getCfg()
-        receiptIdList = glob.glob(os.path.join(cfg["receiptDir"], "*pdf"))
+        invoiceIdList = glob.glob(os.path.join(cfg["invoiceDir"], "*pdf"))
 
     i = 0
-    for r in receiptIdList:
+    for r in invoiceIdList:
         print("%s (%d)" % (r, i+1))
         i += 1
 
     # input is number in allowed range, or q=quit/skip
-    reply, ok = getInput(user, "receipt ID (number or q=quit)", False)
+    reply, ok = getInput(user, "invoice ID (number or q=quit)", False)
     if not ok:
         return "", False
     # is reply an index or string?
@@ -487,7 +552,7 @@ def getReceiptId(user):
     # check number for validity
     select = int(reply) - 1
     if (select >= 0) and (select < i):
-        return receiptIdList[select], True
+        return invoiceIdList[select], True
 
     print("number is not in range 1..%d" % i-1)
     return "", False
@@ -505,9 +570,9 @@ def getInput(user, prompt, required):
         else:
             print("input required")
 
-def showEntry (i, date, amt, payee, desc, rid, dr, cr):
-    print("\n%d. date=%s, amt=%s, payee=%s, desc=%s, receiptID=%s, dr=%s, cr=%s" % 
-            (i, date, amt, payee, desc, rid, dr, cr))
+def showEntry (i, date, amt, payee, desc, invid, dr, cr):
+    print("\n%d. date=%s, amt=%s, payee=%s, desc=%s, invoiceID=%s, dr=%s, cr=%s" % 
+            (i, date, amt, payee, desc, invid, dr, cr))
 
 def rowActBofaCC(r, i):
     global dbEntries
@@ -528,7 +593,7 @@ def rowActBofaCC(r, i):
         cr = "210"
         print("\n%d. date=%s, amt=%s, payee=%s, ccacct=%s" %
                 (i, date, amt, payee, ccacct))
-        rid, ok = getReceiptId("cc")
+        invid, ok = getInvoiceId("cc")
         if not ok:
             return False
         showAcctInfoDR()
@@ -539,13 +604,13 @@ def rowActBofaCC(r, i):
         if not ok:
             return False
 
-    showEntry(i, date, amt, payee, desc, rid, dr, cr)
+    showEntry(i, date, amt, payee, desc, invid, dr, cr)
     ed = {"index":i,
             "date":date,
             "amt":amt,
             "payee":payee,
             "desc":desc,
-            "rid":rid,
+            "invid":invid,
             "dr":dr,
             "cr":cr}
     dbEntries.append(ed)
@@ -593,14 +658,14 @@ def rowActBofaChkAcct(r, i):
     print("%d. date=%s, payee=%s, amt=%s, desc=%s, cr=%s, dr=%s" % (i, r[0], r[1], amt, desc, cr, dr))
     date=r[0]
     payee=r[1][:64]
-    rid=""
-    showEntry(i, date, amt, payee, desc, rid, dr, cr)
+    invid=""
+    showEntry(i, date, amt, payee, desc, invid, dr, cr)
     ed = {"index":i,
             "date":date,
             "amt":amt,
             "payee":payee,
             "desc":desc,
-            "rid":rid,
+            "invid":invid,
             "dr":dr,
             "cr":cr}
     dbEntries.append(ed)
@@ -616,6 +681,8 @@ def chgAddAccount(dbCursor):
     print("add account")
     name = input("name: ")
     number = input("number: ")
+    if not validateNewAcct(number):
+        return
     drcr = input("dr or cr: ")
     if drcr == "dr":
         intDrCr = "1"
@@ -630,37 +697,6 @@ def chgAddAccount(dbCursor):
     dbIsChanged()
     dbOp(dbCursor, op)
     print(dbCursor)
-
-def printAcctInfo(a, drcr):
-    for i in a:
-        print("%24s, %3s, %2s, %2s" % (i[0], i[1], drcr, i[2]))
-
-def showAcctInfoDR():
-    printAcctInfo(drAcct, "DR")
-
-def showAcctInfoCR():
-    printAcctInfo(crAcct, "CR")
-
-def showAccounts():
-    showAcctInfoDR()
-    showAcctInfoCR()
-
-def getAccounts(c):
-    global acctDict
-    global drAcct
-    global crAcct
-
-    op = "SELECT * FROM accounts ORDER BY number;"
-    dbOp(c, op)
-    for i in c:
-        acctDict[i[1]] = i[0]
-        if i[2] == 1:
-            drAcct.append(i)
-        else:
-            crAcct.append(i)
-    #print(drAcct)
-    #print(crAcct)
-    #print(acctDict)
 
 def readCreds(db):
     try:
@@ -724,7 +760,7 @@ def splitCsv():
 
 def runTest():
     while True:
-        fn, ok = getReceiptId("test")
+        fn, ok = getInvoiceId("test")
         if not ok:
             return
         reader = PdfReader(fn)
@@ -748,9 +784,9 @@ def inx(cursor):
         if not ok:
             exitAbnormal(c, "bad date format")
         amt = fixAmt(tx["amt"])
-        rid = os.path.basename(tx["rid"])
+        invid = os.path.basename(tx["invid"])
         payee =  tx["payee"][:64]
-        pushTxToDb(cursor, date, amt, tx["dr"], tx["cr"], payee, tx["desc"], rid)
+        pushTxToDb(cursor, date, amt, tx["dr"], tx["cr"], payee, tx["desc"], invid)
     return
 
 def error(msg):
@@ -804,17 +840,19 @@ def rowStageCreditCardCsv(r, i):
         print(r)
         warn("ignoring row; pmt to cc are recorded in checking account")
         return True
-    amt, isNegative = absoluteAmt(r[6])
+    amt, isNegative, isMoney = absoluteAmt(r[6])
+    if not isMoney:
+        return False
     if isNegative:
         cr = "000"
         dr = "210"
     else:
         cr = "210"
         dr = "000"
-    rid = "tbd"
-    desc = "tbd"
-    showEntry(i, date, amt, payee, desc, rid, dr, cr)
-    op = mkInsertStageOp(date, amt, payee, desc, rid, dr, cr)
+    invid = ""
+    desc = ""
+    showEntry(i, date, amt, payee, desc, invid, dr, cr)
+    op = mkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
     dbIsChanged()
     dbOp(dbCursor, op)
     return True
@@ -833,22 +871,24 @@ def rowStageCheckingCsv(r, i):
         print(r)
         warn("ignoring null amount entry")
         return True
-    amt, isNegative = absoluteAmt(amt)
+    amt, isNegative, isMoney = absoluteAmt(amt)
+    if not isMoney:
+        return False
     if isNegative:
         cr = "110"
         dr = "000"
     else:
         cr = "000"
         dr = "110"
-    desc = "tbd"
+    desc = ""
     date=r[0]
     date, ok = fixDate(date)
     if not ok:
         return False
     payee = removeChars(r[1][:64])
-    rid = "tbd"
-    showEntry(i, date, amt, payee, desc, rid, dr, cr)
-    op = mkInsertStageOp(date, amt, payee, desc, rid, dr, cr)
+    invid = ""
+    showEntry(i, date, amt, payee, desc, invid, dr, cr)
+    op = mkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
     dbIsChanged()
     dbOp(dbCursor, op)
     return True
@@ -867,7 +907,7 @@ def printStageRow(r):
     print("%12s: %s %s" % ("CR_account", r[4], acctDict[r[4]]))
     print("%12s: %s" % ("payee_payer", r[5]))
     print("%12s: %s" % ("descrip", r[6]))
-    print("%12s: %s" % ("receiptid", r[7]))
+    print("%12s: %s" % ("invoiceid", r[7]))
     print("%12s: %s" % ("status", r[8]))
 #      entry: 441
 #       date: 2022-12-30
@@ -875,8 +915,8 @@ def printStageRow(r):
 # DR_account: 0
 # CR_account: 110
 #payee_payer: Zelle Transfer Conf# d94mvrik6; Mueller, Gabriel
-#    descrip: tbd
-#  receiptid: tbd
+#    descrip: 
+#  invoiceid: 
 #     status: delete
 
 def cursorToList():
@@ -902,6 +942,48 @@ def stageReview():
             break
     return
 
+def quit(r):
+    if r == "q":
+        return True
+    return False
+
+def stageNew():
+    print("stageNew")
+    date = input("date (mm/dd/yyyy): ")
+    if quit(date):
+        return
+    date, ok = fixDate(date)
+    if not ok:
+        return
+    amt = input("amount: ")
+    if quit(amt):
+        return
+    amt, isNegative, isMoney = absoluteAmt(amt)
+    if not isMoney:
+        return
+    cr, ok = inputAccountValue("CR", showAcctList=True)
+    if not ok:
+        return
+    dr, ok = inputAccountValue("DR", showAcctList=False)
+    if not ok:
+        return
+    paidToFrom = input("paid to/from: ")
+    if quit(paidToFrom):
+        return
+    if len(paidToFrom) == 0:
+        error("paid to/from must be entered")
+        return
+    desc = input("description: ")
+    if quit(desc):
+        return
+    invid = input("invoice id: ")
+    if quit(invid):
+        return
+    op = mkInsertStageOp(date, amt, paidToFrom, desc, invid, dr, cr)
+    # put stage row
+    dbOp(dbCursor, op)
+    dbConn.commit()
+
 def stageEdit():
     print("stageEdit")
     # get stage row by entry
@@ -914,9 +996,9 @@ def stageEdit():
         for f in i:
             print(f)
     # get new info
-    rid = input("rid: ")
+    invid = input("invid: ")
     #status = "review"
-    op = mkUpdateStageRidOp(entry, rid)
+    op = mkUpdateStageRidOp(entry, invid)
     # put stage row
     dbOp(dbCursor, op)
     dbConn.commit()
@@ -944,7 +1026,7 @@ while True:
     if cmd == "h":
         help()
     elif cmd == "q":
-        quit(dbConn)
+        shutdown(dbConn)
     elif cmd == "ck":
         checkingAccountImportSmallBusBofA(dbCursor)
     elif cmd == "cc":
@@ -957,6 +1039,8 @@ while True:
         stageCreditCardCsv()
     elif cmd == "sgck":
         stageCheckingCsv()
+    elif cmd == "nsg":
+        stageNew()
     elif cmd == "esg":
         stageEdit()
     elif cmd == "rsg":
