@@ -13,7 +13,21 @@ import glob
 
 import db
 
-cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
+DQ = "\""
+COMMA = ","
+COMMA_DQ = ",\""
+DQ_COMMA = "\","
+SEMI = ";"
+SELECT_ALL_FROM = "SELECT * FROM "
+SELECT_ALL_FROM_STAGE = SELECT_ALL_FROM + "stage"
+WHERE_STATUS = " WHERE status="
+WHERE_STATUS_IS_NEW = WHERE_STATUS + DQ + "new" + DQ
+WHERE_STATUS_IS_REVIEW = WHERE_STATUS + DQ + "review" + DQ
+WHERE_STATUS_IS_READY = WHERE_STATUS + DQ + "ready" + DQ
+WHERE_STATUS_IS_DONE = WHERE_STATUS + DQ + "done" + DQ
+ORDER_BY_DATE = " ORDER BY date" + SEMI
+
+#cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
 
 cmdDict = {
         "h": "show all cmds",
@@ -23,11 +37,13 @@ cmdDict = {
         "inx": "chg db - import transactions input file",
         "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
         "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
-        "sgcc": "stage credit card pipe delimited csv file",
-        "sgck": "stage checking account pipe delimited csv file",
-        "nsg": "new stage table entry",
-        "esg": "edit stage table entries",
-        "rsg": "review stage table entries",
+        "sgcc": "stage table - import entries from credit card pipe delimited csv file",
+        "sgck": "stage table - import entries from checking pipe delimited csv file",
+        "sgn": "stage table - create a new entry",
+        "sge": "stage table - edit entry description and invoice ID",
+        "sgan": "stage table - audit entries where status=new",
+        "sgar": "stage table - audit entries where status=review",
+        "sg2tx": "stage table - import entries to transaction table where status=ready",
         "shbal": "show balance",
         "shac": "show account info",
         "addac": "chg db - add account",
@@ -170,27 +186,28 @@ def dbRollback(conn):
     dbChangedReset()
     return
 
-DQ = "\""
-COMMA = ","
-COMMA_DQ = ",\""
-DQ_COMMA = "\","
-SEMI = ";"
-SELECT_ALL_FROM = "SELECT * FROM "
-SELECT_ALL_FROM_STAGE = SELECT_ALL_FROM + "stage"
-WHERE_STATUS = " WHERE status="
-WHERE_STATUS_IS_NEW = WHERE_STATUS + DQ + "new" + DQ
-WHERE_STATUS_IS_REVIEW = WHERE_STATUS + DQ + "review" + DQ
-ORDER_BY_DATE = " ORDER BY date" + SEMI
-
 def mkUpdateStageStatusOp(eid, stat):
     op = ("UPDATE stage "
             "SET status=" + DQ + stat + DQ
-            + " WHERE entry=" + eid + SEMI
+            + " WHERE entry=" + str(eid) + SEMI
             )
     print("op=%s" % op)
     return op
 
-def mkUpdateStageRidOp(eid, invid):
+def mkUpdateStageCrDrDescInvidOp(eid, cr, dr, desc, invid):
+    op = ("UPDATE stage "
+            + "SET "
+            + "CR_account=" + cr + COMMA 
+            + "DR_account=" + dr + COMMA 
+            + "desc=" + DQ + desc + DQ + COMMA
+            + "invoiceid=" + DQ + invid + DQ + COMMA
+            + "status=" + DQ + "review" + DQ
+            + " WHERE entry=" + str(eid) + SEMI
+            )
+    print("op=%s" % op)
+    return op
+
+def mkUpdateStageInvidOp(eid, invid):
     op = ("UPDATE stage "
             "SET invoiceid=" + DQ + invid + DQ + COMMA
             + "status=" + DQ + "review" + DQ
@@ -240,25 +257,47 @@ def fixDate(inDate):
         outDate = p[2] + "-" + p[0] + "-" + p[1]
         return outDate, True
 
-def printAcctInfo(a, drcr):
-    for i in a:
-        print("%24s, %3s, %2s, %2s" % (i[0], i[1], drcr, i[2]))
-
-def showAcctInfoDR():
-    printAcctInfo(drAcct, "DR")
-
-def showAcctInfoCR():
-    printAcctInfo(crAcct, "CR")
-
 def showAccounts():
-    showAcctInfoDR()
-    showAcctInfoCR()
+    drLen = len(drAcct)
+    crLen = len(crAcct)
+    if drLen > crLen:
+        lineCnt = drLen
+    else:
+        lineCnt = crLen
+
+    i = 0
+    dri = 0
+    cri = 0
+    typeDR = "DR"
+    typeCR = "CR"
+    while i < lineCnt:
+        if dri < drLen:
+            drLine = drAcct[i]
+        else:
+            drLine = ("", "", "")
+            typeDR = ""
+        if cri < crLen:
+            crLine = crAcct[i]
+        else:
+            crLine = ("", "", "")
+            typeCR = ""
+
+        print("%24s  %3s  %2s  %2s    %24s  %3s  %2s  %2s" % 
+                (drLine[0], drLine[1], typeDR, drLine[2],
+                 crLine[0], crLine[1], typeCR, crLine[2]))
+
+        i = i + 1
+        dri = dri + 1
+        cri = cri + 1
 
 def getAccounts(c):
     global acctDict
     global drAcct
     global crAcct
 
+    acctDict={}
+    drAcct=[]
+    crAcct=[]
     op = "SELECT * FROM accounts ORDER BY number;"
     dbOp(c, op)
     for i in c:
@@ -282,8 +321,10 @@ def validateExistingAcct(acct):
 def validateNewAcct(acct):
     if not acct.isdigit():
         return errorReturn("acct must be digits: %s" % acct)
-    if len(acct) != 3:
+    elif len(acct) != 3:
         return errorReturn("acct must be 3 digits: %s" % acct)
+    elif acct == "000":
+        return errorReturn("acct 000 is reserved")
     return True
 
 def getAcct(prompt):
@@ -303,6 +344,7 @@ def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, invoiceID):
     txid = getTxid()
     drop = mkDrX(txid, date, amt, drAcct, payee, desc, invoiceID)
     crop = mkCrX(txid, date, amt, crAcct, payee, desc, invoiceID)
+    return
     dbIsChanged()
     dbOp(c, drop)
     dbOp(c, crop)
@@ -857,7 +899,7 @@ def rowStageCreditCardCsv(r, i):
     dbOp(dbCursor, op)
     return True
 
-def stageCreditCardCsv():
+def stageImportCreditCardCsv():
     print("stageCreditCardCsv")
     csvEngine2("ck", rowStageCreditCardCsv, skip=5)
     return
@@ -893,18 +935,27 @@ def rowStageCheckingCsv(r, i):
     dbOp(dbCursor, op)
     return True
 
-def stageCheckingCsv():
+def stageImportCheckingCsv():
     print("stageCheckingCsv")
     csvEngine2("ck", rowStageCheckingCsv, skip=8)
     return
+
+def printAccountValue(label, value):
+    acctDesc="invalid"
+    if value in acctDict:
+        acctDesc = acctDict[value]
+    elif value == 0:
+        acctDesc = "unassigned"
+
+    print("%12s: %s %s" % (label, value, acctDesc))
 
 def printStageRow(r):
     print("-----------------------------------------")
     print("%12s: %s" % ("entry", r[0]))
     print("%12s: %s" % ("date", r[1]))
     print("%12s: %s" % ("amount", r[2]))
-    print("%12s: %s %s" % ("DR_account", r[3], acctDict[r[3]]))
-    print("%12s: %s %s" % ("CR_account", r[4], acctDict[r[4]]))
+    printAccountValue("DR_account", r[3])
+    printAccountValue("CR_account", r[4])
     print("%12s: %s" % ("payee_payer", r[5]))
     print("%12s: %s" % ("descrip", r[6]))
     print("%12s: %s" % ("invoiceid", r[7]))
@@ -925,7 +976,7 @@ def cursorToList():
         ilist.append(i)
     return ilist
 
-def stageReview():
+def stageAuditReview():
     print("stageReview")
     op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_REVIEW + ORDER_BY_DATE
     print("op=%s" % op)
@@ -935,7 +986,7 @@ def stageReview():
         printStageRow(i)
         reply = input("change status to ready? (y/n/q CR=n): ")
         if reply == "y":
-            op = mkUpdateStageStatusOp(str(i[0]), "ready")
+            op = mkUpdateStageStatusOp(i[0], "ready")
             dbOp(dbCursor, op)
             dbConn.commit()
         elif reply == "q":
@@ -946,6 +997,64 @@ def quit(r):
     if r == "q":
         return True
     return False
+
+def inputCrDrDescInvid(cr, dr, desc, invid):
+    if cr == "0":
+        cr, ok = inputAccountValue("CR", showAcctList=True)
+        if not ok:
+            return "",  "",  "",  "", False
+    if dr == "0":
+        dr, ok = inputAccountValue("DR", showAcctList=False)
+        if not ok:
+            return "",  "",  "",  "", False
+    reply = input("description (%s):" % desc)
+    if quit(reply):
+        return "",  "",  "",  "", False
+    elif len(reply) > 0:
+        desc = reply
+    reply = input("invoice id (%s): " % invid)
+    if quit(reply):
+        return "",  "",  "",  "", False
+    elif len(reply) > 0:
+        invid = reply
+    return cr, dr, desc, invid, True
+
+def stageAuditNew():
+    print("stageAuditNew")
+    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_NEW + ORDER_BY_DATE
+    print("op=%s" % op)
+    dbOp(dbCursor, op)
+    selectList = cursorToList()
+    for i in selectList:
+        #print(i)
+        printStageRow(i)
+        dr = str(i[3])
+        cr = str(i[4])
+        cr, dr, desc, invid, ok = inputCrDrDescInvid(cr, dr, i[6], i[7])
+        if not ok:
+            return
+        op = mkUpdateStageCrDrDescInvidOp(i[0], cr, dr, desc, invid)
+
+def stageImportToTransactions():
+    print("stageImportToTransactions")
+    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_READY + ORDER_BY_DATE
+    print("op=%s" % op)
+    dbOp(dbCursor, op)
+    selectList = cursorToList()
+    for i in selectList:
+        #print(i)
+        pushTxToDb(dbCursor,
+                str(i[1]), #date
+                str(i[2]), #amt
+                str(i[3]), #drAcct
+                str(i[4]), #crAcct
+                i[5], #payee
+                i[6], #desc
+                i[7] #invoiceID
+                )
+        op = mkUpdateStageStatusOp(i[0], "done")
+        #dbOp(dbCursor, op)
+        #dbConn.commit()
 
 def stageNew():
     print("stageNew")
@@ -961,30 +1070,21 @@ def stageNew():
     amt, isNegative, isMoney = absoluteAmt(amt)
     if not isMoney:
         return
-    cr, ok = inputAccountValue("CR", showAcctList=True)
-    if not ok:
-        return
-    dr, ok = inputAccountValue("DR", showAcctList=False)
-    if not ok:
-        return
     paidToFrom = input("paid to/from: ")
     if quit(paidToFrom):
         return
     if len(paidToFrom) == 0:
         error("paid to/from must be entered")
         return
-    desc = input("description: ")
-    if quit(desc):
-        return
-    invid = input("invoice id: ")
-    if quit(invid):
+    cr, dr, desc, invid, ok = inputCrDrDescInvid("0", "0", "", "")
+    if not ok:
         return
     op = mkInsertStageOp(date, amt, paidToFrom, desc, invid, dr, cr)
     # put stage row
     dbOp(dbCursor, op)
     dbConn.commit()
 
-def stageEdit():
+def stageEditByEntry():
     print("stageEdit")
     # get stage row by entry
     entry = input("stage table entry number: ")
@@ -998,7 +1098,7 @@ def stageEdit():
     # get new info
     invid = input("invid: ")
     #status = "review"
-    op = mkUpdateStageRidOp(entry, invid)
+    op = mkUpdateStageInvidOp(entry, invid)
     # put stage row
     dbOp(dbCursor, op)
     dbConn.commit()
@@ -1036,15 +1136,19 @@ while True:
     elif cmd == "ccold":
         chgImportOldCC(dbCursor)
     elif cmd == "sgcc":
-        stageCreditCardCsv()
+        stageImportCreditCardCsv()
     elif cmd == "sgck":
-        stageCheckingCsv()
-    elif cmd == "nsg":
+        stageImportCheckingCsv()
+    elif cmd == "sgn":
         stageNew()
-    elif cmd == "esg":
-        stageEdit()
-    elif cmd == "rsg":
-        stageReview()
+    elif cmd == "sge":
+        stageEditByEntry()
+    elif cmd == "sgar":
+        stageAuditReview()
+    elif cmd == "sgan":
+        stageAuditNew()
+    elif cmd == "sg2tx":
+        stageImportToTransactions()
     elif cmd == "addac":
         chgAddAccount(dbCursor)
     elif cmd == "shac":
