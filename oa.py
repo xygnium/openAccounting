@@ -199,7 +199,7 @@ def mkUpdateStageCrDrDescInvidOp(eid, cr, dr, desc, invid):
             + "SET "
             + "CR_account=" + cr + COMMA 
             + "DR_account=" + dr + COMMA 
-            + "desc=" + DQ + desc + DQ + COMMA
+            + "descrip=" + DQ + desc + DQ + COMMA
             + "invoiceid=" + DQ + invid + DQ + COMMA
             + "status=" + DQ + "review" + DQ
             + " WHERE entry=" + str(eid) + SEMI
@@ -344,7 +344,7 @@ def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, invoiceID):
     txid = getTxid()
     drop = mkDrX(txid, date, amt, drAcct, payee, desc, invoiceID)
     crop = mkCrX(txid, date, amt, crAcct, payee, desc, invoiceID)
-    return
+    #return
     dbIsChanged()
     dbOp(c, drop)
     dbOp(c, crop)
@@ -999,12 +999,17 @@ def quit(r):
     return False
 
 def inputCrDrDescInvid(cr, dr, desc, invid):
+    showAcctListCr=False
+    showAcctListDr=True
     if cr == "0":
-        cr, ok = inputAccountValue("CR", showAcctList=True)
+        showAcctListCr=True
+        cr, ok = inputAccountValue("CR", showAcctListCr)
         if not ok:
             return "",  "",  "",  "", False
     if dr == "0":
-        dr, ok = inputAccountValue("DR", showAcctList=False)
+        if showAcctListCr:
+            showAcctListDr=False
+        dr, ok = inputAccountValue("DR", showAcctListDr)
         if not ok:
             return "",  "",  "",  "", False
     reply = input("description (%s):" % desc)
@@ -1028,12 +1033,20 @@ def stageAuditNew():
     for i in selectList:
         #print(i)
         printStageRow(i)
+        reply = input("skip(y|CR=n|q): ")
+        if reply == "y":
+            print("skipping")
+            continue
+        elif reply == "q":
+            return
         dr = str(i[3])
         cr = str(i[4])
         cr, dr, desc, invid, ok = inputCrDrDescInvid(cr, dr, i[6], i[7])
         if not ok:
             return
         op = mkUpdateStageCrDrDescInvidOp(i[0], cr, dr, desc, invid)
+        dbOp(dbCursor, op)
+        dbConn.commit()
 
 def stageImportToTransactions():
     print("stageImportToTransactions")
@@ -1049,12 +1062,12 @@ def stageImportToTransactions():
                 str(i[3]), #drAcct
                 str(i[4]), #crAcct
                 i[5], #payee
-                i[6], #desc
+                i[6], #descrip
                 i[7] #invoiceID
                 )
         op = mkUpdateStageStatusOp(i[0], "done")
-        #dbOp(dbCursor, op)
-        #dbConn.commit()
+        dbOp(dbCursor, op)
+        dbConn.commit()
 
 def stageNew():
     print("stageNew")
