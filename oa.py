@@ -12,6 +12,7 @@ import glob
 # local imports
 
 import db
+import cfg
 
 DQ = "\""
 COMMA = ","
@@ -27,6 +28,9 @@ WHERE_STATUS_IS_READY = WHERE_STATUS + DQ + "ready" + DQ
 WHERE_STATUS_IS_DONE = WHERE_STATUS + DQ + "done" + DQ
 ORDER_BY_DATE = " ORDER BY date" + SEMI
 
+CK_CSV_SKIP=8
+CC_CSV_SKIP=5
+
 #cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
 
 cmdDict = {
@@ -37,6 +41,8 @@ cmdDict = {
         "inx": "chg db - import transactions input file",
         "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
         "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
+        "cknewcsv": "compare old and new ck dnld csv files, find new rows and write to new csv file",
+        "ccnewcsv": "compare old and new cc dnld csv files, find new rows and write to new csv file",
         "sgcc": "stage table - import entries from credit card pipe delimited csv file",
         "sgck": "stage table - import entries from checking pipe delimited csv file",
         "sgn": "stage table - create a new entry",
@@ -54,13 +60,11 @@ cmdDict = {
         }
 
 # globals (eliminate)
-cfg = {}
 acctDict={}
 drAcct=[]
 crAcct=[]
 dbEntries=[]
 dbChgAttempt = False
-txid = 0
 csvFileList = []
 stagedFileList = []
 invoiceIdList = []
@@ -94,57 +98,11 @@ def proceed():
         return True
     return False
 
-def mkCfg():
-    # if not cfg exist
-    # make and write to file
-    global cfg, cfgFn
-    if os.path.isfile(cfgFn):
-        return
-    cfg = {
-            "db": "testdb",
-            "dbuid": "admin",
-            "dbpswd": "owl",
-            "dbip": None,
-            "txid": 1,
-            "csvDir": None,
-            "invoiceDir": None,
-            "stageDir": None
-            }
-    putCfg()
-
-def getCfg():
-    global cfg, cfgFn
-    with open(cfgFn, 'r') as fh:
-        cfg = json.load(fh)
-
-def putCfg():
-    global cfg, cfgFn
-    with open(cfgFn, 'w', encoding='utf-8') as fh:
-        json.dump(cfg, fh, ensure_ascii=False, indent=4)
-
 def testGetTxid():
     print(getTxid())
     print(getTxid())
     print(getTxid())
     db.exitPgm("DBG", -1)
-
-def getTxid():
-    global txid
-    if txid == 0:
-        getCfg()
-        txid = cfg["txid"]
-    else:
-        txid += 1
-    return txid
-
-def putTxid():
-    global txid
-    getCfg()
-    cfg["txid"] = getTxid()
-    putCfg()
-
-def getStageDir():
-    return cfg["stageDir"]
 
 def getConnector(db, usr, pw):
     conn = mariadb.connect(
@@ -177,7 +135,7 @@ def dbOp(cursor, op):
 def dbCommit(conn):
     print("dbCommit")
     conn.commit()
-    putTxid()
+    cfg.putTxid()
     dbChangedReset()
 
 def dbRollback(conn):
@@ -341,7 +299,7 @@ def inputAccountValue(prompt, showAcctList):
     return getAcct(prompt)
 
 def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, invoiceID):
-    txid = getTxid()
+    txid = cfg.getTxid()
     drop = mkDrX(txid, date, amt, drAcct, payee, desc, invoiceID)
     crop = mkCrX(txid, date, amt, crAcct, payee, desc, invoiceID)
     #return
@@ -500,7 +458,7 @@ def csvEngine(user, rowAct, c, skip):
     # make JSON fn
     baseFn = os.path.basename(csvFn)
     baseFnNoExt = os.path.splitext(baseFn)
-    jsonFn = os.path.join(getStageDir(), baseFnNoExt[0] + ".json")
+    jsonFn = os.path.join(cfg.getStageDir(), baseFnNoExt[0] + ".json")
     # if JSON fidbEntries exist; read into dbEntries
     if os.path.isfile(jsonFn):
         with open(jsonFn) as fh:
@@ -560,24 +518,23 @@ def getCsvFile(user):
     # display list of files in cfg csv dir
     global csvFileList
     if len(csvFileList) == 0:
-        getCfg()
-        csvFileList = glob.glob(os.path.join(cfg["csvDir"], "*"))
-        #csvFileList = glob.glob(os.path.join(cfg["csvDir"], "fm*"))
+        cfg.getCfg()
+        csvFileList = glob.glob(os.path.join(cfg.getCsvDr(), "*"))
     return getFileByIndex(csvFileList, user)
 
 def getStagedFile(user):
     # display list of files in cfg csv dir
     global stagedFileList
     if len(stagedFileList) == 0:
-        getCfg()
-        csvFileList = glob.glob(os.path.join(cfg["stageDir"], "*"))
+        cfg.getCfg()
+        csvFileList = glob.glob(os.path.join(cfg.getStageDir(), "*"))
     return getFileByIndex(csvFileList, user)
 
 def getInvoiceId(user):
     global invoiceIdList
     if len(invoiceIdList) == 0:
-        getCfg()
-        invoiceIdList = glob.glob(os.path.join(cfg["invoiceDir"], "*pdf"))
+        cfg.getCfg()
+        invoiceIdList = glob.glob(os.path.join(cfg.getInvoiceDir(), "*pdf"))
 
     i = 0
     for r in invoiceIdList:
@@ -661,7 +618,7 @@ def rowActBofaCC(r, i):
 
 def creditCardImportSmallBusBofA(c):
     print("creditCardImport")
-    csvFn, ok = csvEngine("cc", rowActBofaCC, c, skip=5)
+    csvFn, ok = csvEngine("cc", rowActBofaCC, c, skip=CC_CSV_SKIP)
     j = json.dumps(dbEntries, indent=4)
     print(j)
 
@@ -736,8 +693,8 @@ def chgAddAccount(dbCursor):
     op = ("INSERT INTO accounts (name, number, normal) VALUES "
             "(\"" + name + "\"," + number + "," + intDrCr + ");")
     print(op)
-    dbIsChanged()
     dbOp(dbCursor, op)
+    dbConn.commit()
     print(dbCursor)
 
 def readCreds(db):
@@ -758,11 +715,6 @@ def readCreds(db):
 def showSyntax(msg):
     print("Usage: oa.py <optional path>/<cfg fn>")
     db.exitPgm(msg, -1)
-
-def getCfgFn():
-    if len(sys.argv) != 2:
-        showSyntax("missing cfg fn")
-    return sys.argv[1]
 
 lc = 0
 fc = 0
@@ -901,7 +853,7 @@ def rowStageCreditCardCsv(r, i):
 
 def stageImportCreditCardCsv():
     print("stageCreditCardCsv")
-    csvEngine2("ck", rowStageCreditCardCsv, skip=5)
+    csvEngine2("ck", rowStageCreditCardCsv, skip=CC_CSV_SKIP)
     return
 
 def rowStageCheckingCsv(r, i):
@@ -937,7 +889,7 @@ def rowStageCheckingCsv(r, i):
 
 def stageImportCheckingCsv():
     print("stageCheckingCsv")
-    csvEngine2("ck", rowStageCheckingCsv, skip=8)
+    csvEngine2("ck", rowStageCheckingCsv, skip=CK_CSV_SKIP)
     return
 
 def printAccountValue(label, value):
@@ -984,13 +936,19 @@ def stageAuditReview():
     selectList = cursorToList()
     for i in selectList:
         printStageRow(i)
-        reply = input("change status to ready? (y/n/q CR=n): ")
-        if reply == "y":
+        reply = input("skip=s, quit=q, chg=c, ready=CR: ")
+        if reply == "s":
+            continue
+        elif reply == "q":
+            break
+        elif reply == "c":
+            chgCrDrDescInvid(i)
+            print("start review again")
+            break
+        else:
             op = mkUpdateStageStatusOp(i[0], "ready")
             dbOp(dbCursor, op)
             dbConn.commit()
-        elif reply == "q":
-            break
     return
 
 def quit(r):
@@ -998,15 +956,17 @@ def quit(r):
         return True
     return False
 
-def inputCrDrDescInvid(cr, dr, desc, invid):
+def inputCrDrDescInvid(intcr, intdr, desc, invid):
     showAcctListCr=False
     showAcctListDr=True
-    if cr == "0":
+    cr = str(intcr)
+    dr = str(intdr)
+    if intcr == 0:
         showAcctListCr=True
         cr, ok = inputAccountValue("CR", showAcctListCr)
         if not ok:
             return "",  "",  "",  "", False
-    if dr == "0":
+    if intdr == 0:
         if showAcctListCr:
             showAcctListDr=False
         dr, ok = inputAccountValue("DR", showAcctListDr)
@@ -1024,6 +984,19 @@ def inputCrDrDescInvid(cr, dr, desc, invid):
         invid = reply
     return cr, dr, desc, invid, True
 
+def chgCrDrDescInvid(r):
+    entry= r[0]
+    dr = r[3]
+    cr = r[4]
+    desc = r[6]
+    invid = r[7]
+    cr, dr, desc, invid, ok = inputCrDrDescInvid(cr, dr, desc, invid)
+    if not ok:
+        return
+    op = mkUpdateStageCrDrDescInvidOp(entry, cr, dr, desc, invid)
+    dbOp(dbCursor, op)
+    dbConn.commit()
+
 def stageAuditNew():
     print("stageAuditNew")
     op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_NEW + ORDER_BY_DATE
@@ -1039,14 +1012,8 @@ def stageAuditNew():
             continue
         elif reply == "q":
             return
-        dr = str(i[3])
-        cr = str(i[4])
-        cr, dr, desc, invid, ok = inputCrDrDescInvid(cr, dr, i[6], i[7])
-        if not ok:
-            return
-        op = mkUpdateStageCrDrDescInvidOp(i[0], cr, dr, desc, invid)
-        dbOp(dbCursor, op)
-        dbConn.commit()
+        else:
+            chgCrDrDescInvid(i)
 
 def stageImportToTransactions():
     print("stageImportToTransactions")
@@ -1089,7 +1056,7 @@ def stageNew():
     if len(paidToFrom) == 0:
         error("paid to/from must be entered")
         return
-    cr, dr, desc, invid, ok = inputCrDrDescInvid("0", "0", "", "")
+    cr, dr, desc, invid, ok = inputCrDrDescInvid(0, 0, "", "")
     if not ok:
         return
     op = mkInsertStageOp(date, amt, paidToFrom, desc, invid, dr, cr)
@@ -1121,15 +1088,8 @@ def stageEditByEntry():
 
 print("mariadb frontend for simple accounting, v0.0")
 
-cfgFn = getCfgFn()
-print("cfgFn=%s" % cfgFn)
-mkCfg()
-getCfg()
-#creds = readCreds("testdb")
-#creds = readCreds("fmledger")
-#print(creds)
-#dbConn = getConnector(creds[1], creds[2], creds[0])
-dbConn = getConnector(cfg["db"], cfg["dbuid"], cfg["dbpswd"])
+cfg.initCfg()
+dbConn = getConnector(cfg.getDb(), cfg.getDbUid(), cfg.getDbPswd())
 dbCursor = getCursor(dbConn)
 getAccounts(dbCursor)
 #db.exitAbnormal("DBG")
@@ -1179,6 +1139,10 @@ while True:
         dbRollback(dbConn)
     elif cmd == "split":
         splitCsv()
+    elif cmd == "cknewcsv":
+        csvSortDiff(CK_CSV_SKIP)
+    elif cmd == "ccnewcsv":
+        csvSortDiff(CC_CSV_SKIP)
     elif cmd == "test":
         runTest()
     else:
