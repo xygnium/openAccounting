@@ -16,6 +16,7 @@ import ask
 import csvop
 import stage
 import acct
+import xact
 
 DQ = "\""
 COMMA = ","
@@ -88,67 +89,6 @@ def testGetTxid():
 def errorReturn(msg):
     error(msg)
     return False
-
-def chgAddTransaction(cursor):
-    print("doInsert")
-    date = input("date yyyy-mm-dd: ")
-    amt = input("amt: ")
-    drAcct, ok = getAcct("debit")
-    if not ok:
-        return
-    crAcct, ok = getAcct("credit")
-    if not ok:
-        return
-    desc = input("desc: ")
-    payee = input("payee: ")
-    invoiceNum = input("invoice # with leading zeros: ")
-    if drAcct == crAcct:
-        return errorReturn("ERROR: debit account cannot be same as credit account")
-    invoiceID = ""
-    if len(invoiceNum) == 3:
-        invoiceID = "FM-R2023-" + invoiceNum
-    pushTxToDb(cursor, date, amt, drAcct, crAcct, payee, desc, invoiceID)
-
-def confirmZero(c):
-    op = ("select "
-          "sum(case when direction = 1 then amount end), "
-          "sum(case when direction = -1 then amount end) "
-          "from transactions;"
-         )
-    dbOp(c, op)
-    r=[]
-    for i in c:
-        print(i)
-        r+=i
-    if r[0] == r[1]:
-        print("DR == CR")
-    else:
-        print("DR != CR")
-
-def makeDetailedBalanceSheet(c):
-    op = ("select "
-                "account,"
-                "name,"
-                "sum(amount * direction * normal) as balance "
-            "from "
-                "transactions "
-                "left join accounts on account = accounts.number "
-            "group by "
-                "account "
-            "order by "
-                "account;"
-        )
-    dbOp(c, op)
-    #print("%3s  %20s   %8s" % ("No", "Name", "Balance"))
-    #for i in c:
-    #    print("%3s  %20s   %8s" % (i[0], i[1], i[2]))
-    #print
-    for i in c:
-        print("%s|%s|%s" % (i[0], i[1], i[2]))
-
-def showBalance(c):
-    makeDetailedBalanceSheet(c)
-    confirmZero(c)
 
 def showTransactions():
     op = "SELECT * FROM transactions;"
@@ -653,7 +593,7 @@ while True:
     elif cmd == "shac":
         acct.ShowAccounts()
     elif cmd == "shbal":
-        showBalance(dbCursor)
+        xact.ShowBalance()
     elif cmd == "shx":
         showTransactions()
     elif cmd == "addx":

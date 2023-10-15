@@ -49,11 +49,12 @@ def dbIsChanged():
 def dbChanged():
     return dbChgAttempt
 
-def dbOp(cursor, op):
+def TryDbOp(op):
     try:
-        cursor.execute(op)
+        dbCursor.execute(op)
     except mariadb.Error as e:
         db.exitAbnormal(cursor, e)
+    return dbCursor
 
 def dbCommit():
     print("dbCommit")
@@ -83,7 +84,7 @@ def Shutdown():
     return
 
 def SelectAllAccounts():
-    dbOp(dbCursor, SELECT_ALL_ACCTS)
+    TryDbOp(SELECT_ALL_ACCTS)
     return dbCursor
 
 def mkUpdateStageStatusOp(eid, stat):
@@ -151,6 +152,6 @@ def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, invoiceID):
     crop = mkCrX(txid, date, amt, crAcct, payee, desc, invoiceID)
     #return
     dbIsChanged()
-    dbOp(c, drop)
-    dbOp(c, crop)
+    TryDbOp(drop)
+    TryDbOp(crop)
 
