@@ -2,7 +2,6 @@
 
 import os
 import sys
-import mariadb 
 import csv
 import json
 from itertools import islice
@@ -13,6 +12,10 @@ import glob
 
 import db
 import cfg
+import ask
+import csvop
+import stage
+import acct
 
 DQ = "\""
 COMMA = ","
@@ -28,21 +31,18 @@ WHERE_STATUS_IS_READY = WHERE_STATUS + DQ + "ready" + DQ
 WHERE_STATUS_IS_DONE = WHERE_STATUS + DQ + "done" + DQ
 ORDER_BY_DATE = " ORDER BY date" + SEMI
 
-CK_CSV_SKIP=8
-CC_CSV_SKIP=5
-
 #cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
+#        "cc": "make transactions input file from csv file downloaded from BofA credit card account",
+#        "ck": "make transactions input file from csv file downloaded from BofA checking account",
+#        "inx": "chg db - import transactions input file",
+#        "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
+#        "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
 
 cmdDict = {
         "h": "show all cmds",
         "q": "quit pgm",
-        "cc": "make transactions input file from csv file downloaded from BofA credit card account",
-        "ck": "make transactions input file from csv file downloaded from BofA checking account",
-        "inx": "chg db - import transactions input file",
-        "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
-        "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
-        "cknewcsv": "compare old and new ck dnld csv files, find new rows and write to new csv file",
-        "ccnewcsv": "compare old and new cc dnld csv files, find new rows and write to new csv file",
+        "difcsvck": "compare previous and new checking    dnld csv files, find unused new rows and write to new csv file",
+        "difcsvcc": "compare previous and new credit card dnld csv files, find unused new rows and write to new csv file",
         "sgcc": "stage table - import entries from credit card pipe delimited csv file",
         "sgck": "stage table - import entries from checking pipe delimited csv file",
         "sgn": "stage table - create a new entry",
@@ -60,11 +60,7 @@ cmdDict = {
         }
 
 # globals (eliminate)
-acctDict={}
-drAcct=[]
-crAcct=[]
 dbEntries=[]
-dbChgAttempt = False
 csvFileList = []
 stagedFileList = []
 invoiceIdList = []
@@ -77,23 +73,8 @@ def quitWithMsg(msg):
     print(msg)
     return -1
 
-def shutdown(conn):
-    if not dbChanged():
-        db.exitNormal(conn, "OK")
-    commit = input("commit (y|n): ")
-    if commit == "y":
-        print("changes committed")
-        dbCommit(conn)
-        db.exitNormal(conn, "OK")
-    elif commit == "n":
-        print("changes NOT committed")
-        db.exitNormal(conn, "OK")
-    else:
-        print("need y or n")
-    return
-
 def proceed():
-    reply =  input("proceed(y:N)?: ")
+    reply =  input("proceed(y|n)?: ")
     if reply == "y":
         return True
     return False
@@ -104,208 +85,9 @@ def testGetTxid():
     print(getTxid())
     db.exitPgm("DBG", -1)
 
-def getConnector(db, usr, pw):
-    conn = mariadb.connect(
-        user=usr,
-        password=pw,
-        host="localhost",
-        database=db)
-    return conn
-
-def getCursor(conn):
-    return conn.cursor() 
-
-def dbChangedReset():
-    global dbChgAttempt
-    dbChgAttempt = False
-
-def dbIsChanged():
-    global dbChgAttempt
-    dbChgAttempt = True
-
-def dbChanged():
-    return dbChgAttempt
-
-def dbOp(cursor, op):
-    try:
-        cursor.execute(op)
-    except mariadb.Error as e:
-        db.exitAbnormal(cursor, e)
-
-def dbCommit(conn):
-    print("dbCommit")
-    conn.commit()
-    cfg.putTxid()
-    dbChangedReset()
-
-def dbRollback(conn):
-    print("dbRollback")
-    conn.rollback()
-    dbChangedReset()
-    return
-
-def mkUpdateStageStatusOp(eid, stat):
-    op = ("UPDATE stage "
-            "SET status=" + DQ + stat + DQ
-            + " WHERE entry=" + str(eid) + SEMI
-            )
-    print("op=%s" % op)
-    return op
-
-def mkUpdateStageCrDrDescInvidOp(eid, cr, dr, desc, invid):
-    op = ("UPDATE stage "
-            + "SET "
-            + "CR_account=" + cr + COMMA 
-            + "DR_account=" + dr + COMMA 
-            + "descrip=" + DQ + desc + DQ + COMMA
-            + "invoiceid=" + DQ + invid + DQ + COMMA
-            + "status=" + DQ + "review" + DQ
-            + " WHERE entry=" + str(eid) + SEMI
-            )
-    print("op=%s" % op)
-    return op
-
-def mkUpdateStageInvidOp(eid, invid):
-    op = ("UPDATE stage "
-            "SET invoiceid=" + DQ + invid + DQ + COMMA
-            + "status=" + DQ + "review" + DQ
-            + " WHERE entry=" + eid + SEMI
-            )
-    print("op=%s" % op)
-    return op
-
-def mkInsertStageOp(date, amt, payee, desc, invid, dr, cr):
-    op = ("INSERT INTO stage  "
-            "(date, amount, DR_account, CR_account, payee_payer, descrip, invoiceid, status) VALUES "
-            "("
-            + DQ + date + DQ + COMMA
-            + amt + COMMA
-            + dr + COMMA
-            + cr + COMMA
-            + DQ + payee + DQ + COMMA
-            + DQ + desc + DQ + COMMA
-            + DQ + invid + DQ + COMMA
-            + DQ + "new" + DQ + ");"
-            )
-    print("op=%s" % op)
-    return op
-
-def mkInsertX(txid, date, amt, acct, direct, payee, desc, invid):
-    op = ("INSERT INTO transactions "
-            "(txid, date,amount,account,direction,payee,descrip,invoiceid) VALUES "
-            "(" + str(txid) + ",\"" + date + "\"," + amt + "," + acct + "," + direct + ",\"" + payee + "\",\"" + desc + "\",\"" + invid + "\");")
-    print("op=%s" % op)
-    return op
-
-def mkDrX(txid, date, amt, acct, payee, desc, invid):
-    return mkInsertX(txid, date, amt, acct, "1", payee, desc, invid)
-
-def mkCrX(txid, date, amt, acct, payee, desc, invid):
-    return mkInsertX(txid, date, amt, acct, "-1", payee, desc, invid)
-
 def errorReturn(msg):
     error(msg)
     return False
-
-def fixDate(inDate):
-        p = inDate.split("/")
-        if len(p) != 3:
-            print("malformed date: %s" % inDate)
-            return "", False
-        outDate = p[2] + "-" + p[0] + "-" + p[1]
-        return outDate, True
-
-def showAccounts():
-    drLen = len(drAcct)
-    crLen = len(crAcct)
-    if drLen > crLen:
-        lineCnt = drLen
-    else:
-        lineCnt = crLen
-
-    i = 0
-    dri = 0
-    cri = 0
-    typeDR = "DR"
-    typeCR = "CR"
-    while i < lineCnt:
-        if dri < drLen:
-            drLine = drAcct[i]
-        else:
-            drLine = ("", "", "")
-            typeDR = ""
-        if cri < crLen:
-            crLine = crAcct[i]
-        else:
-            crLine = ("", "", "")
-            typeCR = ""
-
-        print("%24s  %3s  %2s  %2s    %24s  %3s  %2s  %2s" % 
-                (drLine[0], drLine[1], typeDR, drLine[2],
-                 crLine[0], crLine[1], typeCR, crLine[2]))
-
-        i = i + 1
-        dri = dri + 1
-        cri = cri + 1
-
-def getAccounts(c):
-    global acctDict
-    global drAcct
-    global crAcct
-
-    acctDict={}
-    drAcct=[]
-    crAcct=[]
-    op = "SELECT * FROM accounts ORDER BY number;"
-    dbOp(c, op)
-    for i in c:
-        acctDict[i[1]] = i[0]
-        if i[2] == 1:
-            drAcct.append(i)
-        else:
-            crAcct.append(i)
-    #print(drAcct)
-    #print(crAcct)
-    #print(acctDict)
-
-def validateExistingAcct(acct):
-    if not validateNewAcct(acct):
-        return False
-    print("acct=%s, dict entry=%s" % (acct, acctDict[int(acct)]))
-    if not int(acct) in acctDict:
-        return errorReturn("account value (%s) not in list" % acct)
-    return True
-    
-def validateNewAcct(acct):
-    if not acct.isdigit():
-        return errorReturn("acct must be digits: %s" % acct)
-    elif len(acct) != 3:
-        return errorReturn("acct must be 3 digits: %s" % acct)
-    elif acct == "000":
-        return errorReturn("acct 000 is reserved")
-    return True
-
-def getAcct(prompt):
-    acct = input("%s account: " % prompt)
-    if quit(acct):
-        return "", False
-    if not validateExistingAcct(acct):
-        return "", False
-    return acct, True
-
-def inputAccountValue(prompt, showAcctList):
-    if showAcctList:
-        showAccounts()
-    return getAcct(prompt)
-
-def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, invoiceID):
-    txid = cfg.getTxid()
-    drop = mkDrX(txid, date, amt, drAcct, payee, desc, invoiceID)
-    crop = mkCrX(txid, date, amt, crAcct, payee, desc, invoiceID)
-    #return
-    dbIsChanged()
-    dbOp(c, drop)
-    dbOp(c, crop)
 
 def chgAddTransaction(cursor):
     print("doInsert")
@@ -380,10 +162,6 @@ def remEnc(inx, dchar):
         return inx[1:-1]
     return inx
 
-def removeChars(s):
-    s = s.replace(DQ, "")
-    return s
-
 def fixAmt(amt):
     amt = remEnc(amt, "\"")
     amt = remEnc(amt, "(")
@@ -418,7 +196,7 @@ def absoluteAmt(amt):
 
 def chgImportOldCC(cursor):
     print("CCimportOld")
-    inFile, ok = getCsvFile("ccold")
+    inFile, ok = csvop.GetFile("ccold")
     if not ok:
         return
     #inFile = input("file path: ")
@@ -434,7 +212,7 @@ def chgImportOldCC(cursor):
         if row[0] == "210":
             print("skip pmts to CC")
             continue
-        date, ok = fixDate(row[5])
+        date, ok = stage.fixDate(row[5])
         if not ok:
             print("import aborted")
             return
@@ -452,7 +230,7 @@ def chgImportOldCC(cursor):
 def csvEngine(user, rowAct, c, skip):
     global dbEntries
     dbEntries = []
-    csvFn, ok = getCsvFile(user)
+    csvFn, ok = csvop.GetFile(user)
     if not ok:
         return
     # make JSON fn
@@ -493,35 +271,6 @@ def csvEngine(user, rowAct, c, skip):
         json.dump(dbEntries, fh, ensure_ascii=False, indent=4)
     return csvFn, rc
 
-#def getFileList(fDir, user):
-
-def getFileByIndex(fList, user):
-    # prompt user for file selection
-    i = 0
-    for r in fList:
-        print("%s (%d)" % (r, i+1))
-        i += 1
-    # return file path
-    # input is number in allowed range, or q=quit/skip
-    reply, ok = getInput(user, "file (number or q=quit)", False)
-    if not ok:
-        return "", False
-    # check number for validity
-    select = int(reply) - 1
-    if (select >= 0) and (select < i):
-        return fList[select], True
-
-    print("number is not in range 1..%d" % i-1)
-    return "", False
-
-def getCsvFile(user):
-    # display list of files in cfg csv dir
-    global csvFileList
-    if len(csvFileList) == 0:
-        cfg.getCfg()
-        csvFileList = glob.glob(os.path.join(cfg.getCsvDr(), "*"))
-    return getFileByIndex(csvFileList, user)
-
 def getStagedFile(user):
     # display list of files in cfg csv dir
     global stagedFileList
@@ -542,7 +291,7 @@ def getInvoiceId(user):
         i += 1
 
     # input is number in allowed range, or q=quit/skip
-    reply, ok = getInput(user, "invoice ID (number or q=quit)", False)
+    reply, ok = ask.Ask(user, "invoice ID (number or q=quit)", False)
     if not ok:
         return "", False
     # is reply an index or string?
@@ -555,19 +304,6 @@ def getInvoiceId(user):
 
     print("number is not in range 1..%d" % i-1)
     return "", False
-
-def getInput(user, prompt, required):
-    while True:
-        reply = input("%s: " % prompt)
-        if reply == "q":
-            print("%s quit" % user)
-            return "", False
-        if len(reply) > 0:
-            return reply, True
-        elif not required:
-            return reply, True
-        else:
-            print("input required")
 
 def showEntry (i, date, amt, payee, desc, invid, dr, cr):
     print("\n%d. date=%s, amt=%s, payee=%s, desc=%s, invoiceID=%s, dr=%s, cr=%s" % 
@@ -596,10 +332,10 @@ def rowActBofaCC(r, i):
         if not ok:
             return False
         showAcctInfoDR()
-        dr, ok = getInput("cc", "debit account", True)
+        dr, ok = ask.Ask("cc", "debit account", True)
         if not ok:
             return False
-        desc, ok = getInput("cc", "description", False)
+        desc, ok = ask.Ask("cc", "description", False)
         if not ok:
             return False
 
@@ -645,13 +381,13 @@ def rowActBofaChkAcct(r, i):
     if amt[0] == "-":
         amt = amt[1:]
         cr = "110"
-        dr, ok = getInput("ck", "debit account", True)
+        dr, ok = ask.Ask("ck", "debit account", True)
         if not ok:
             return False
     else:
-        cr, ok = getInput("ck", "credit account", True)
+        cr, ok = ask.Ask("ck", "credit account", True)
         dr = "110"
-    desc, ok = getInput("cc", "description", False)
+    desc, ok = ask.Ask("cc", "description", False)
     if not ok:
         return False
     print("%d. date=%s, payee=%s, amt=%s, desc=%s, cr=%s, dr=%s" % (i, r[0], r[1], amt, desc, cr, dr))
@@ -736,7 +472,7 @@ def mkSplitFile(fn, line, linesPerFile):
 
 def splitCsv():
     print("split")
-    inFile, ok = getCsvFile("split")
+    inFile, ok = csvop.GetFile("split")
     if not ok:
         return
     print("reading file: %s" % inFile)
@@ -774,7 +510,7 @@ def inx(cursor):
     for tx in txList:
         print(tx)
         # run db ops
-        date, ok = fixDate(tx["date"])
+        date, ok = stage.fixDate(tx["date"])
         if not ok:
             exitAbnormal(c, "bad date format")
         amt = fixAmt(tx["amt"])
@@ -791,15 +527,8 @@ def warn(msg):
     print("WARNING:" + msg)
     return
 
-def checkColumnCount(r, cnt):
-    if len(r) != cnt:
-        print(r)
-        error("column count is %d; expected %d" % (len(r), cnt))
-        return False
-    return True
-
 def csvEngine2(user, rowMethod, skip):
-    csvFn, ok = getCsvFile(user)
+    csvFn, ok = csvop.GetFile(user)
     if not ok:
         return False
     # open csv file
@@ -819,137 +548,21 @@ def csvEngine2(user, rowMethod, skip):
         i = i + 1
     return True
 
-def rowStageCreditCardCsv(r, i):
-    cfgColumnCount = 11
-    if not checkColumnCount(r, cfgColumnCount):
-        return False
-    ccacct = r[1]
-    date = r[3]
-    date, ok = fixDate(date)
-    if not ok:
-        return False
-    payee = removeChars(r[5][:64])
-    transType = r[9]
-    if (ccacct == "1327") and (transType == "C"):
-        print(r)
-        warn("ignoring row; pmt to cc are recorded in checking account")
-        return True
-    amt, isNegative, isMoney = absoluteAmt(r[6])
-    if not isMoney:
-        return False
-    if isNegative:
-        cr = "000"
-        dr = "210"
-    else:
-        cr = "210"
-        dr = "000"
-    invid = ""
-    desc = ""
-    showEntry(i, date, amt, payee, desc, invid, dr, cr)
-    op = mkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
-    dbIsChanged()
-    dbOp(dbCursor, op)
-    return True
-
 def stageImportCreditCardCsv():
     print("stageCreditCardCsv")
-    csvEngine2("ck", rowStageCreditCardCsv, skip=CC_CSV_SKIP)
+    csvEngine2("ck", stage.AddRowCreditCard, skip=CC_CSV_SKIP)
     return
-
-def rowStageCheckingCsv(r, i):
-    cfgColumnCount = 4
-    if not checkColumnCount(r, cfgColumnCount):
-        return False
-    amt = r[2]
-    if len(amt) == 0:
-        print(r)
-        warn("ignoring null amount entry")
-        return True
-    amt, isNegative, isMoney = absoluteAmt(amt)
-    if not isMoney:
-        return False
-    if isNegative:
-        cr = "110"
-        dr = "000"
-    else:
-        cr = "000"
-        dr = "110"
-    desc = ""
-    date=r[0]
-    date, ok = fixDate(date)
-    if not ok:
-        return False
-    payee = removeChars(r[1][:64])
-    invid = ""
-    showEntry(i, date, amt, payee, desc, invid, dr, cr)
-    op = mkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
-    dbIsChanged()
-    dbOp(dbCursor, op)
-    return True
 
 def stageImportCheckingCsv():
     print("stageCheckingCsv")
-    csvEngine2("ck", rowStageCheckingCsv, skip=CK_CSV_SKIP)
+    csvEngine2("ck", stage.AddRowChecking, skip=CK_CSV_SKIP)
     return
-
-def printAccountValue(label, value):
-    acctDesc="invalid"
-    if value in acctDict:
-        acctDesc = acctDict[value]
-    elif value == 0:
-        acctDesc = "unassigned"
-
-    print("%12s: %s %s" % (label, value, acctDesc))
-
-def printStageRow(r):
-    print("-----------------------------------------")
-    print("%12s: %s" % ("entry", r[0]))
-    print("%12s: %s" % ("date", r[1]))
-    print("%12s: %s" % ("amount", r[2]))
-    printAccountValue("DR_account", r[3])
-    printAccountValue("CR_account", r[4])
-    print("%12s: %s" % ("payee_payer", r[5]))
-    print("%12s: %s" % ("descrip", r[6]))
-    print("%12s: %s" % ("invoiceid", r[7]))
-    print("%12s: %s" % ("status", r[8]))
-#      entry: 441
-#       date: 2022-12-30
-#     amount: 500.00
-# DR_account: 0
-# CR_account: 110
-#payee_payer: Zelle Transfer Conf# d94mvrik6; Mueller, Gabriel
-#    descrip: 
-#  invoiceid: 
-#     status: delete
 
 def cursorToList():
     ilist = []
     for i in dbCursor:
         ilist.append(i)
     return ilist
-
-def stageAuditReview():
-    print("stageReview")
-    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_REVIEW + ORDER_BY_DATE
-    print("op=%s" % op)
-    dbOp(dbCursor, op)
-    selectList = cursorToList()
-    for i in selectList:
-        printStageRow(i)
-        reply = input("skip=s, quit=q, chg=c, ready=CR: ")
-        if reply == "s":
-            continue
-        elif reply == "q":
-            break
-        elif reply == "c":
-            chgCrDrDescInvid(i)
-            print("start review again")
-            break
-        else:
-            op = mkUpdateStageStatusOp(i[0], "ready")
-            dbOp(dbCursor, op)
-            dbConn.commit()
-    return
 
 def quit(r):
     if r == "q":
@@ -997,113 +610,26 @@ def chgCrDrDescInvid(r):
     dbOp(dbCursor, op)
     dbConn.commit()
 
-def stageAuditNew():
-    print("stageAuditNew")
-    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_NEW + ORDER_BY_DATE
-    print("op=%s" % op)
-    dbOp(dbCursor, op)
-    selectList = cursorToList()
-    for i in selectList:
-        #print(i)
-        printStageRow(i)
-        reply = input("skip(y|CR=n|q): ")
-        if reply == "y":
-            print("skipping")
-            continue
-        elif reply == "q":
-            return
-        else:
-            chgCrDrDescInvid(i)
-
-def stageImportToTransactions():
-    print("stageImportToTransactions")
-    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_READY + ORDER_BY_DATE
-    print("op=%s" % op)
-    dbOp(dbCursor, op)
-    selectList = cursorToList()
-    for i in selectList:
-        #print(i)
-        pushTxToDb(dbCursor,
-                str(i[1]), #date
-                str(i[2]), #amt
-                str(i[3]), #drAcct
-                str(i[4]), #crAcct
-                i[5], #payee
-                i[6], #descrip
-                i[7] #invoiceID
-                )
-        op = mkUpdateStageStatusOp(i[0], "done")
-        dbOp(dbCursor, op)
-        dbConn.commit()
-
-def stageNew():
-    print("stageNew")
-    date = input("date (mm/dd/yyyy): ")
-    if quit(date):
-        return
-    date, ok = fixDate(date)
-    if not ok:
-        return
-    amt = input("amount: ")
-    if quit(amt):
-        return
-    amt, isNegative, isMoney = absoluteAmt(amt)
-    if not isMoney:
-        return
-    paidToFrom = input("paid to/from: ")
-    if quit(paidToFrom):
-        return
-    if len(paidToFrom) == 0:
-        error("paid to/from must be entered")
-        return
-    cr, dr, desc, invid, ok = inputCrDrDescInvid(0, 0, "", "")
-    if not ok:
-        return
-    op = mkInsertStageOp(date, amt, paidToFrom, desc, invid, dr, cr)
-    # put stage row
-    dbOp(dbCursor, op)
-    dbConn.commit()
-
-def stageEditByEntry():
-    print("stageEdit")
-    # get stage row by entry
-    entry = input("stage table entry number: ")
-    op = ("SELECT * FROM stage WHERE entry = " + entry + SEMI)
-    print("op=%s" % op)
-    dbOp(dbCursor, op)
-    for i in dbCursor:
-        print(i)
-        for f in i:
-            print(f)
-    # get new info
-    invid = input("invid: ")
-    #status = "review"
-    op = mkUpdateStageInvidOp(entry, invid)
-    # put stage row
-    dbOp(dbCursor, op)
-    dbConn.commit()
-    return
-
 # --- main ---
 
 print("mariadb frontend for simple accounting, v0.0")
 
-cfg.initCfg()
-dbConn = getConnector(cfg.getDb(), cfg.getDbUid(), cfg.getDbPswd())
-dbCursor = getCursor(dbConn)
-getAccounts(dbCursor)
-#db.exitAbnormal("DBG")
+cfg.InitCfg()
+db.Init()
+acct.InitAccounts()
 
 while True:
     cmd = input("cmd: ")
     if cmd == "h":
         help()
     elif cmd == "q":
-        shutdown(dbConn)
+        db.Shutdown()
     elif cmd == "ck":
         checkingAccountImportSmallBusBofA(dbCursor)
     elif cmd == "cc":
         creditCardImportSmallBusBofA(dbCursor)
+    elif cmd == "split":
+        splitCsv()
     elif cmd == "inx":
         inx(dbCursor)
     elif cmd == "ccold":
@@ -1125,7 +651,7 @@ while True:
     elif cmd == "addac":
         chgAddAccount(dbCursor)
     elif cmd == "shac":
-        showAccounts()
+        acct.ShowAccounts()
     elif cmd == "shbal":
         showBalance(dbCursor)
     elif cmd == "shx":
@@ -1134,15 +660,13 @@ while True:
         chgAddTransaction(dbCursor)
     elif cmd == "ct":
         dbCommit(dbConn)
-        getAccounts(dbCursor)
+        acct.GetAccounts(dbCursor)
     elif cmd == "rb":
         dbRollback(dbConn)
-    elif cmd == "split":
-        splitCsv()
-    elif cmd == "cknewcsv":
-        csvSortDiff(CK_CSV_SKIP)
-    elif cmd == "ccnewcsv":
-        csvSortDiff(CC_CSV_SKIP)
+    elif cmd == "difcsvck":
+        csvop.SortDiffStage(csvop.CK, cfg.GetCkTag(), cfg.GetCkCsvSkip(), cfg.GetCkCsvSortColumn())
+    elif cmd == "difcsvcc":
+        csvop.SortDiffStage(csvop.CC, cfg.GetCcTag(), cfg.GetCcCsvSkip(), cfg.GetCcCsvSortColumn())
     elif cmd == "test":
         runTest()
     else:
