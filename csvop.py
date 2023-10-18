@@ -5,6 +5,7 @@ from datetime import datetime
 
 import cfg
 import ask
+import stage
 
 CK="checking"
 CC="creditcard"
@@ -96,21 +97,27 @@ def SortDiffStage(user, tag, skip, sortColumn):
     print()
     print("new csv rows:")
     print()
-    csvListKeep=[]
     for r in csvListSortedNew[inew:]:
         print("%.150s" % " | ".join(r))
-        csvListKeep.append(2)
 
     # add new csv rows to stage table
 
-    if user == CK:
-        reply = ask.Ask(CK, "add new csv rows to stage table? (y|n)", True)
-        if reply != "y":
-            print("terminated")
+    reply, ok = ask.Ask(user, "add new csv rows to stage table? (y|n)", True)
+    if (not ok) or (reply != "y"):
+        print("terminated, reply=%s" % reply)
+        return
 
-    if user == CC:
-        reply = ask.Ask(CC, "add new csv rows to stage table? (y|n)", True)
-        if reply != "y":
-            print("terminated")
+    for r in csvListSortedNew[inew:]:
+        print("%.150s" % " | ".join(r))
+        if user == CK:
+            if not stage.AddRowChecking(r):
+                return
+        elif user == CC:
+            if not stage.AddRowCreditCard(r):
+                return
+        else:
+            print("user not recognized: %s" % user)
+            return
+
 
     return

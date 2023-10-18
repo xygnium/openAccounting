@@ -18,20 +18,6 @@ import stage
 import acct
 import xact
 
-DQ = "\""
-COMMA = ","
-COMMA_DQ = ",\""
-DQ_COMMA = "\","
-SEMI = ";"
-SELECT_ALL_FROM = "SELECT * FROM "
-SELECT_ALL_FROM_STAGE = SELECT_ALL_FROM + "stage"
-WHERE_STATUS = " WHERE status="
-WHERE_STATUS_IS_NEW = WHERE_STATUS + DQ + "new" + DQ
-WHERE_STATUS_IS_REVIEW = WHERE_STATUS + DQ + "review" + DQ
-WHERE_STATUS_IS_READY = WHERE_STATUS + DQ + "ready" + DQ
-WHERE_STATUS_IS_DONE = WHERE_STATUS + DQ + "done" + DQ
-ORDER_BY_DATE = " ORDER BY date" + SEMI
-
 #cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
 #        "cc": "make transactions input file from csv file downloaded from BofA credit card account",
 #        "ck": "make transactions input file from csv file downloaded from BofA checking account",
@@ -108,31 +94,6 @@ def fixAmt(amt):
     amt = amt.replace(",", "")
     amt = amt.replace("-", "")
     return amt
-
-def absoluteAmt(amt):
-    isnegative = False
-    ismoney = False
-    parts = amt.split(".")
-    plen = len(parts)
-    if ((plen < 1) or (plen > 2)):
-        print("amount is malformed: %s" % amt)
-        return 0, isnegative, ismoney
-    dollars = parts[0]
-    if not dollars.isdecimal():
-        print("dollar amount is not a number: %s" % dollars)
-    if plen == 2:
-        cents = parts[1]
-        if not cents.isdecimal():
-            print("cents amount is not a number: %s" % cents)
-            return 0, isnegative, ismoney
-        if len(cents) > 2:
-            print("cents amount is not a two digit number: %s" % cents)
-            return 0, isnegative, ismoney
-    ismoney = True
-    if amt[0] == "-":
-        isnegative = True
-        amt = amt[1:]
-    return amt, isnegative, ismoney
 
 def chgImportOldCC(cursor):
     print("CCimportOld")
@@ -461,10 +422,6 @@ def inx(cursor):
 
 def error(msg):
     print("ERROR:" + msg)
-    return
-
-def warn(msg):
-    print("WARNING:" + msg)
     return
 
 def csvEngine2(user, rowMethod, skip):

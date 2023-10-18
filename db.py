@@ -3,6 +3,19 @@ import mariadb
 
 import cfg
 
+DQ = "\""
+COMMA = ","
+COMMA_DQ = ",\""
+DQ_COMMA = "\","
+SEMI = ";"
+SELECT_ALL_FROM = "SELECT * FROM "
+SELECT_ALL_FROM_STAGE = SELECT_ALL_FROM + "stage"
+WHERE_STATUS = " WHERE status="
+WHERE_STATUS_IS_NEW = WHERE_STATUS + DQ + "new" + DQ
+WHERE_STATUS_IS_REVIEW = WHERE_STATUS + DQ + "review" + DQ
+WHERE_STATUS_IS_READY = WHERE_STATUS + DQ + "ready" + DQ
+WHERE_STATUS_IS_DONE = WHERE_STATUS + DQ + "done" + DQ
+ORDER_BY_DATE = " ORDER BY date" + SEMI
 SELECT_ALL_ACCTS = "SELECT * FROM accounts ORDER BY number;"
 
 # --- private functions ---
@@ -117,7 +130,7 @@ def mkUpdateStageInvidOp(eid, invid):
     print("op=%s" % op)
     return op
 
-def mkInsertStageOp(date, amt, payee, desc, invid, dr, cr):
+def MkInsertStageOp(date, amt, payee, desc, invid, dr, cr):
     op = ("INSERT INTO stage  "
             "(date, amount, DR_account, CR_account, payee_payer, descrip, invoiceid, status) VALUES "
             "("

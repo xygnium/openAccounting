@@ -1,5 +1,10 @@
+import db
 
 # --- private funtions ---
+
+def warn(msg):
+    print("\nWARNING:%s\n" % msg)
+    return
 
 def checkColumnCount(r, cnt):
     if len(r) != cnt:
@@ -17,12 +22,15 @@ def fixDate(inDate):
         return outDate, True
 
 def removeChars(s):
-    s = s.replace(DQ, "")
+    s = s.replace(db.DQ, "")
     return s
 
 def absoluteAmt(amt):
     isnegative = False
     ismoney = False
+    if amt[0] == "-":
+        isnegative = True
+        amt = amt[1:]
     parts = amt.split(".")
     plen = len(parts)
     if ((plen < 1) or (plen > 2)):
@@ -40,14 +48,11 @@ def absoluteAmt(amt):
             print("cents amount is not a two digit number: %s" % cents)
             return 0, isnegative, ismoney
     ismoney = True
-    if amt[0] == "-":
-        isnegative = True
-        amt = amt[1:]
     return amt, isnegative, ismoney
 
 # --- public funtions ---
 
-def AddRowCreditCard(r, i):
+def AddRowCreditCard(r):
     # this function is specific to my bank and my account
     # needs to get values from cfg
     cfgColumnCount = 11
@@ -75,12 +80,12 @@ def AddRowCreditCard(r, i):
         dr = "000"
     invid = ""
     desc = ""
-    op = mkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
+    op = db.MkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
     #dbIsChanged()
     #dbOp(dbCursor, op)
     return True
 
-def AddRowChecking(r, i):
+def AddRowChecking(r):
     # this function is specific to my bank and my account
     # needs to get values from cfg
     cfgColumnCount = 4
@@ -107,7 +112,7 @@ def AddRowChecking(r, i):
         return False
     payee = removeChars(r[1][:64])
     invid = ""
-    op = mkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
+    op = db.MkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
     #dbIsChanged()
     #dbOp(dbCursor, op)
     return True
