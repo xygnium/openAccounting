@@ -1,4 +1,5 @@
 
+import ask
 import db
 
 acctDict={}
@@ -6,6 +7,10 @@ drAcct=[]
 crAcct=[]
 
 # --- private functions ---
+
+def errorReturn(msg):
+    error(msg)
+    return False
 
 def validateExistingAcct(acct):
     if not validateNewAcct(acct):
@@ -26,18 +31,18 @@ def validateNewAcct(acct):
 
 def getAcct(prompt):
     acct = input("%s account: " % prompt)
-    if quit(acct):
+    if ask.Quit(acct):
         return "", False
     if not validateExistingAcct(acct):
         return "", False
     return acct, True
 
-def inputAccountValue(prompt, showAcctList):
+def InputAccountValue(prompt, showAcctList):
     if showAcctList:
-        showAccounts()
+        ShowAccounts()
     return getAcct(prompt)
 
-def printAccountValue(label, value):
+def PrintAccountValue(label, value):
     acctDesc="invalid"
     if value in acctDict:
         acctDesc = acctDict[value]

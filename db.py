@@ -17,6 +17,7 @@ WHERE_STATUS_IS_READY = WHERE_STATUS + DQ + "ready" + DQ
 WHERE_STATUS_IS_DONE = WHERE_STATUS + DQ + "done" + DQ
 ORDER_BY_DATE = " ORDER BY date" + SEMI
 SELECT_ALL_ACCTS = "SELECT * FROM accounts ORDER BY number;"
+SELECT_STAGE_NEW_DATE = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_NEW + ORDER_BY_DATE
 
 # --- private functions ---
 
@@ -37,11 +38,13 @@ def exitPgm(msg, code):
     print(msg)
     sys.exit(code)
 
-def exitAbnormal(conn, msg):
-    conn.close()
+def exitAbnormal(msg):
+    global dbConn, dbCursor, dbChgAttempt
+    dbConn.close()
     exitPgm(msg, -1)
 
 def exitNormal(msg):
+    global dbConn, dbCursor, dbChgAttempt
     dbConn.close()
     exitPgm(msg, 0)
 
@@ -63,21 +66,33 @@ def dbChanged():
     return dbChgAttempt
 
 def TryDbOp(op):
+    global dbConn, dbCursor, dbChgAttempt
     try:
         dbCursor.execute(op)
     except mariadb.Error as e:
-        db.exitAbnormal(cursor, e)
+        db.exitAbnormal(e)
     return dbCursor
 
-def dbCommit():
-    print("dbCommit")
+def CursorToList():
+    ilist = []
+    for i in dbCursor:
+        ilist.append(i)
+    return ilist
+
+def Commit():
+    print("Commit")
     dbConn.commit()
-    cfg.putTxid()
     dbChangedReset()
 
+def CommitWithTxid():
+    print("CommitWithTxid")
+    cfg.putTxid()
+    Commit()
+
 def dbRollback(conn):
+    global dbConn, dbCursor, dbChgAttempt
     print("dbRollback")
-    conn.rollback()
+    dbConn.rollback()
     dbChangedReset()
     return
 
@@ -100,7 +115,7 @@ def SelectAllAccounts():
     TryDbOp(SELECT_ALL_ACCTS)
     return dbCursor
 
-def mkUpdateStageStatusOp(eid, stat):
+def MkUpdateStageStatusOp(eid, stat):
     op = ("UPDATE stage "
             "SET status=" + DQ + stat + DQ
             + " WHERE entry=" + str(eid) + SEMI
@@ -108,7 +123,7 @@ def mkUpdateStageStatusOp(eid, stat):
     print("op=%s" % op)
     return op
 
-def mkUpdateStageCrDrDescInvidOp(eid, cr, dr, desc, invid):
+def MkUpdateStageCrDrDescInvidOp(eid, cr, dr, desc, invid):
     op = ("UPDATE stage "
             + "SET "
             + "CR_account=" + cr + COMMA 
@@ -121,7 +136,7 @@ def mkUpdateStageCrDrDescInvidOp(eid, cr, dr, desc, invid):
     print("op=%s" % op)
     return op
 
-def mkUpdateStageInvidOp(eid, invid):
+def MkUpdateStageInvidOp(eid, invid):
     op = ("UPDATE stage "
             "SET invoiceid=" + DQ + invid + DQ + COMMA
             + "status=" + DQ + "review" + DQ

@@ -1,4 +1,9 @@
+import os
+
+import ask
 import db
+import acct
+import cfg
 
 # --- private funtions ---
 
@@ -50,7 +55,47 @@ def absoluteAmt(amt):
     ismoney = True
     return amt, isnegative, ismoney
 
-# --- public funtions ---
+def inputCrDrDescInvid(intcr, intdr, desc, invid):
+    invid, ok = ask.Ask4FileByIndex("stage", cfg.GetInvoiceDirNew(), "*pdf")
+    if not ok:
+        return "",  "",  "",  "", False
+    invid = os.path.basename(invid)
+    showAcctListCr=False
+    showAcctListDr=True
+    cr = str(intcr)
+    dr = str(intdr)
+    if intcr == 0:
+        showAcctListCr=True
+        cr, ok = acct.InputAccountValue("CR", showAcctListCr)
+        if not ok:
+            return "",  "",  "",  "", False
+    if intdr == 0:
+        if showAcctListCr:
+            showAcctListDr=False
+        dr, ok = acct.InputAccountValue("DR", showAcctListDr)
+        if not ok:
+            return "",  "",  "",  "", False
+    reply = input("description (%s):" % desc)
+    if ask.Quit(reply):
+        return "",  "",  "",  "", False
+    elif len(reply) > 0:
+        desc = reply
+    return cr, dr, desc, invid, True
+
+def chgCrDrDescInvid(r):
+    entry= r[0]
+    dr = r[3]
+    cr = r[4]
+    desc = r[6]
+    invid = r[7]
+    cr, dr, desc, invid, ok = inputCrDrDescInvid(cr, dr, desc, invid)
+    if not ok:
+        return
+    op = db.MkUpdateStageCrDrDescInvidOp(entry, cr, dr, desc, invid)
+    db.TryDbOp(op)
+    db.Commit()
+
+# --- public functions ---
 
 def AddRowCreditCard(r):
     # this function is specific to my bank and my account
@@ -81,8 +126,9 @@ def AddRowCreditCard(r):
     invid = ""
     desc = ""
     op = db.MkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
-    #dbIsChanged()
-    #dbOp(dbCursor, op)
+    db.dbIsChanged()
+    db.TryDbOp(op)
+    db.Commit()
     return True
 
 def AddRowChecking(r):
@@ -113,12 +159,14 @@ def AddRowChecking(r):
     payee = removeChars(r[1][:64])
     invid = ""
     op = db.MkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
-    #dbIsChanged()
-    #dbOp(dbCursor, op)
+    db.dbIsChanged()
+    db.TryDbOp(op)
+    db.Commit()
     return True
 
 def AuditReview():
     print("stageReview")
+    cfg.getCfg()
     op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_REVIEW + ORDER_BY_DATE
     print("op=%s" % op)
     dbOp(dbCursor, op)
@@ -136,16 +184,17 @@ def AuditReview():
             break
         else:
             op = mkUpdateStageStatusOp(i[0], "ready")
-            dbOp(dbCursor, op)
-            dbConn.commit()
+            db.TryDbOp(op)
+            db.Commit()
     return
 
 def AuditNew():
     print("stageAuditNew")
-    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_NEW + ORDER_BY_DATE
+    cfg.getCfg()
+    op = db.SELECT_STAGE_NEW_DATE
     print("op=%s" % op)
-    dbOp(dbCursor, op)
-    selectList = cursorToList()
+    db.TryDbOp(op)
+    selectList = db.CursorToList()
     for i in selectList:
         #print(i)
         printStageRow(i)
@@ -158,7 +207,7 @@ def AuditNew():
         else:
             chgCrDrDescInvid(i)
 
-def stageImportToTransactions():
+def ImportToTransactions():
     print("stageImportToTransactions")
     op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_READY + ORDER_BY_DATE
     print("op=%s" % op)
@@ -176,8 +225,8 @@ def stageImportToTransactions():
                 i[7] #invoiceID
                 )
         op = mkUpdateStageStatusOp(i[0], "done")
-        dbOp(dbCursor, op)
-        dbConn.commit()
+        db.TryDbOp(op)
+        db.Commit()
 
 def stageNew():
     print("stageNew")
@@ -204,10 +253,10 @@ def stageNew():
         return
     op = mkInsertStageOp(date, amt, paidToFrom, desc, invid, dr, cr)
     # put stage row
-    dbOp(dbCursor, op)
-    dbConn.commit()
+    db.TryDbOp(op)
+    db.Commit()
 
-def stageEditByEntry():
+def EditByEntry():
     print("stageEdit")
     # get stage row by entry
     entry = input("stage table entry number: ")
@@ -223,8 +272,8 @@ def stageEditByEntry():
     #status = "review"
     op = mkUpdateStageInvidOp(entry, invid)
     # put stage row
-    dbOp(dbCursor, op)
-    dbConn.commit()
+    db.TryDbOp(op)
+    db.Commit()
     return
 
 def printStageRow(r):
@@ -232,8 +281,8 @@ def printStageRow(r):
     print("%12s: %s" % ("entry", r[0]))
     print("%12s: %s" % ("date", r[1]))
     print("%12s: %s" % ("amount", r[2]))
-    printAccountValue("DR_account", r[3])
-    printAccountValue("CR_account", r[4])
+    acct.PrintAccountValue("DR_account", r[3])
+    acct.PrintAccountValue("CR_account", r[4])
     print("%12s: %s" % ("payee_payer", r[5]))
     print("%12s: %s" % ("descrip", r[6]))
     print("%12s: %s" % ("invoiceid", r[7]))

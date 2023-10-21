@@ -28,8 +28,8 @@ import xact
 cmdDict = {
         "h": "show all cmds",
         "q": "quit pgm",
-        "difcsvck": "compare previous and new checking    dnld csv files, find unused new rows and write to new csv file",
-        "difcsvcc": "compare previous and new credit card dnld csv files, find unused new rows and write to new csv file",
+        "difcsvck": "compare previous and new checking csv files, find new rows, import to stage table",
+        "difcsvcc": "compare previous and new credit card csv files, find new rows, import to stage table",
         "sgcc": "stage table - import entries from credit card pipe delimited csv file",
         "sgck": "stage table - import entries from checking pipe delimited csv file",
         "sgn": "stage table - create a new entry",
@@ -71,10 +71,6 @@ def testGetTxid():
     print(getTxid())
     print(getTxid())
     db.exitPgm("DBG", -1)
-
-def errorReturn(msg):
-    error(msg)
-    return False
 
 def showTransactions():
     op = "SELECT * FROM transactions;"
@@ -180,7 +176,7 @@ def getStagedFile(user):
         csvFileList = glob.glob(os.path.join(cfg.getStageDir(), "*"))
     return getFileByIndex(csvFileList, user)
 
-def getInvoiceId(user):
+def getInvoiceIdDeprecated(user):
     global invoiceIdList
     if len(invoiceIdList) == 0:
         cfg.getCfg()
@@ -455,58 +451,6 @@ def stageImportCheckingCsv():
     csvEngine2("ck", stage.AddRowChecking, skip=CK_CSV_SKIP)
     return
 
-def cursorToList():
-    ilist = []
-    for i in dbCursor:
-        ilist.append(i)
-    return ilist
-
-def quit(r):
-    if r == "q":
-        return True
-    return False
-
-def inputCrDrDescInvid(intcr, intdr, desc, invid):
-    showAcctListCr=False
-    showAcctListDr=True
-    cr = str(intcr)
-    dr = str(intdr)
-    if intcr == 0:
-        showAcctListCr=True
-        cr, ok = inputAccountValue("CR", showAcctListCr)
-        if not ok:
-            return "",  "",  "",  "", False
-    if intdr == 0:
-        if showAcctListCr:
-            showAcctListDr=False
-        dr, ok = inputAccountValue("DR", showAcctListDr)
-        if not ok:
-            return "",  "",  "",  "", False
-    reply = input("description (%s):" % desc)
-    if quit(reply):
-        return "",  "",  "",  "", False
-    elif len(reply) > 0:
-        desc = reply
-    reply = input("invoice id (%s): " % invid)
-    if quit(reply):
-        return "",  "",  "",  "", False
-    elif len(reply) > 0:
-        invid = reply
-    return cr, dr, desc, invid, True
-
-def chgCrDrDescInvid(r):
-    entry= r[0]
-    dr = r[3]
-    cr = r[4]
-    desc = r[6]
-    invid = r[7]
-    cr, dr, desc, invid, ok = inputCrDrDescInvid(cr, dr, desc, invid)
-    if not ok:
-        return
-    op = mkUpdateStageCrDrDescInvidOp(entry, cr, dr, desc, invid)
-    dbOp(dbCursor, op)
-    dbConn.commit()
-
 # --- main ---
 
 print("mariadb frontend for simple accounting, v0.0")
@@ -536,15 +480,15 @@ while True:
     elif cmd == "sgck":
         stageImportCheckingCsv()
     elif cmd == "sgn":
-        stageNew()
+        stage.New()
     elif cmd == "sge":
-        stageEditByEntry()
+        stage.EditByEntry()
     elif cmd == "sgar":
-        stageAuditReview()
+        stage.AuditReview()
     elif cmd == "sgan":
-        stageAuditNew()
+        stage.AuditNew()
     elif cmd == "sg2tx":
-        stageImportToTransactions()
+        stage.ImportToTransactions()
     elif cmd == "addac":
         chgAddAccount(dbCursor)
     elif cmd == "shac":

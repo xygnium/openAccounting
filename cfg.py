@@ -22,7 +22,8 @@ def mkCfg():
             "dbip": None,
             "txid": 0,
             "csvDir": None,
-            "invoiceDir": None,
+            "invoiceDirNew": None,
+            "invoiceDirUsed": None,
             "checkingTag": "ck",
             "checkingCsvSortColumn": 0,
             "checkingCsvSkip": 8,
@@ -79,8 +80,11 @@ def getDbUid():
 def getDbPswd():
     return GLOBAL_cfg["dbpswd"]
 
-def getInvoiceDir():
-    return GLOBAL_cfg["invoiceDir"]
+def GetInvoiceDirNew():
+    return GLOBAL_cfg["invoiceDirNew"]
+
+def GetInvoiceDirUsed():
+    return GLOBAL_cfg["invoiceDirUsed"]
 
 def getCsvDir():
     return GLOBAL_cfg["csvDir"]

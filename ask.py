@@ -33,3 +33,9 @@ def Ask4FileByIndex(user, fdir, wild):
     print("number is not in range 1..%d" % i-1)
     return "", False
 
+def Quit(r):
+    if r == "q":
+        print("quit")
+        return True
+    return False
+
