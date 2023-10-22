@@ -106,3 +106,24 @@ def ShowAccounts():
         dri = dri + 1
         cri = cri + 1
 
+def chgAddAccount(dbCursor):
+    print("add account")
+    name = input("name: ")
+    number = input("number: ")
+    if not validateNewAcct(number):
+        return
+    drcr = input("dr or cr: ")
+    if drcr == "dr":
+        intDrCr = "1"
+    elif drcr == "cr":
+        intDrCr = "-1"
+    else:
+        print("invalid drcr value")
+        return
+    op = ("INSERT INTO accounts (name, number, normal) VALUES "
+            "(\"" + name + "\"," + number + "," + intDrCr + ");")
+    print(op)
+    dbOp(dbCursor, op)
+    dbConn.commit()
+    print(dbCursor)
+

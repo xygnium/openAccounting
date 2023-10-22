@@ -66,7 +66,7 @@ def ShowBalance():
     makeDetailedBalanceSheet()
     confirmZero()
 
-def showTransactions():
+def ShowTransactions():
     op = "SELECT * FROM transactions;"
     dbOp(dbCursor, op)
     for i in dbCursor:

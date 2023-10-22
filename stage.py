@@ -55,11 +55,18 @@ def absoluteAmt(amt):
     ismoney = True
     return amt, isnegative, ismoney
 
+def moveInvid(fn):
+    os.rename(fn, cfg.GetInvoiceUsed())
+
 def inputCrDrDescInvid(intcr, intdr, desc, invid):
-    invid, ok = ask.Ask4FileByIndex("stage", cfg.GetInvoiceDirNew(), "*pdf")
+    invidFq, ok = ask.Ask4FileByIndex("stage", cfg.GetInvoiceDirNew(), "*pdf")
     if not ok:
-        return "",  "",  "",  "", False
-    invid = os.path.basename(invid)
+        return "",  "",  "",  "", "", False
+    if invidFq == "skip":
+        invidFq = ""
+        invidBase = ""
+    else:
+        invidBase = os.path.basename(invidFq)
     showAcctListCr=False
     showAcctListDr=True
     cr = str(intcr)
@@ -68,19 +75,19 @@ def inputCrDrDescInvid(intcr, intdr, desc, invid):
         showAcctListCr=True
         cr, ok = acct.InputAccountValue("CR", showAcctListCr)
         if not ok:
-            return "",  "",  "",  "", False
+            return "",  "",  "",  "", "", False
     if intdr == 0:
         if showAcctListCr:
             showAcctListDr=False
         dr, ok = acct.InputAccountValue("DR", showAcctListDr)
         if not ok:
-            return "",  "",  "",  "", False
+            return "",  "",  "",  "", "", False
     reply = input("description (%s):" % desc)
     if ask.Quit(reply):
-        return "",  "",  "",  "", False
-    elif len(reply) > 0:
+        return "",  "",  "",  "", "", False
+    else:
         desc = reply
-    return cr, dr, desc, invid, True
+    return cr, dr, desc, invidFq, invidBase, True
 
 def chgCrDrDescInvid(r):
     entry= r[0]
@@ -88,10 +95,14 @@ def chgCrDrDescInvid(r):
     cr = r[4]
     desc = r[6]
     invid = r[7]
-    cr, dr, desc, invid, ok = inputCrDrDescInvid(cr, dr, desc, invid)
+    cr, dr, desc, invidFull, invidBase, ok = inputCrDrDescInvid(cr, dr, desc, invid)
     if not ok:
         return
-    op = db.MkUpdateStageCrDrDescInvidOp(entry, cr, dr, desc, invid)
+    if invidFull != "":
+        invidUsed = os.path.join(cfg.GetInvoiceDirUsed(), invidBase)
+        print("mv invidFull=%s invidUsed=%s" % (invidFull, invidUsed))
+        os.rename(invidFull, invidUsed)
+    op = db.MkUpdateStageCrDrDescInvidOp(entry, cr, dr, desc, invidBase)
     db.TryDbOp(op)
     db.Commit()
 
@@ -159,7 +170,6 @@ def AddRowChecking(r):
     payee = removeChars(r[1][:64])
     invid = ""
     op = db.MkInsertStageOp(date, amt, payee, desc, invid, dr, cr)
-    db.dbIsChanged()
     db.TryDbOp(op)
     db.Commit()
     return True
@@ -167,10 +177,10 @@ def AddRowChecking(r):
 def AuditReview():
     print("stageReview")
     cfg.getCfg()
-    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_REVIEW + ORDER_BY_DATE
+    op = db.SELECT_STAGE_REVIEW_DATE
     print("op=%s" % op)
-    dbOp(dbCursor, op)
-    selectList = cursorToList()
+    db.TryDbOp(op)
+    selectList = db.CursorToList()
     for i in selectList:
         printStageRow(i)
         reply = input("skip=s, quit=q, chg=c, ready=CR: ")
@@ -183,7 +193,7 @@ def AuditReview():
             print("start review again")
             break
         else:
-            op = mkUpdateStageStatusOp(i[0], "ready")
+            op = db.MkUpdateStageStatusOp(i[0], "ready")
             db.TryDbOp(op)
             db.Commit()
     return
@@ -209,13 +219,13 @@ def AuditNew():
 
 def ImportToTransactions():
     print("stageImportToTransactions")
-    op = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_READY + ORDER_BY_DATE
+    op = db.SELECT_STAGE_READY_DATE
     print("op=%s" % op)
-    dbOp(dbCursor, op)
-    selectList = cursorToList()
+    db.TryDbOp(op)
+    selectList = db.CursorToList()
     for i in selectList:
         #print(i)
-        pushTxToDb(dbCursor,
+        db.PushTxToDb(
                 str(i[1]), #date
                 str(i[2]), #amt
                 str(i[3]), #drAcct
@@ -224,7 +234,7 @@ def ImportToTransactions():
                 i[6], #descrip
                 i[7] #invoiceID
                 )
-        op = mkUpdateStageStatusOp(i[0], "done")
+        op = db.MkUpdateStageStatusOp(i[0], "done")
         db.TryDbOp(op)
         db.Commit()
 

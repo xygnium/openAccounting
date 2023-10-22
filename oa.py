@@ -18,43 +18,11 @@ import stage
 import acct
 import xact
 
-#cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
-#        "cc": "make transactions input file from csv file downloaded from BofA credit card account",
-#        "ck": "make transactions input file from csv file downloaded from BofA checking account",
-#        "inx": "chg db - import transactions input file",
-#        "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
-#        "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
-
-cmdDict = {
-        "h": "show all cmds",
-        "q": "quit pgm",
-        "difcsvck": "compare previous and new checking csv files, find new rows, import to stage table",
-        "difcsvcc": "compare previous and new credit card csv files, find new rows, import to stage table",
-        "sgcc": "stage table - import entries from credit card pipe delimited csv file",
-        "sgck": "stage table - import entries from checking pipe delimited csv file",
-        "sgn": "stage table - create a new entry",
-        "sge": "stage table - edit entry description and invoice ID",
-        "sgan": "stage table - audit entries where status=new",
-        "sgar": "stage table - audit entries where status=review",
-        "sg2tx": "stage table - import entries to transaction table where status=ready",
-        "shbal": "show balance",
-        "shac": "show account info",
-        "addac": "chg db - add account",
-        "addx": "chg db - create and add transaction",
-        "shx": "show all transactions",
-        "ct": "db commit",
-        "rb": "db rollback"
-        }
-
 # globals (eliminate)
-dbEntries=[]
-csvFileList = []
-stagedFileList = []
-invoiceIdList = []
-
-def help():
-    for c in cmdDict:
-        print("%10s, %s" % (c, cmdDict[c]))
+#dbEntries=[]
+#csvFileList = []
+#stagedFileList = []
+#invoiceIdList = []
 
 def quitWithMsg(msg):
     print(msg)
@@ -71,12 +39,6 @@ def testGetTxid():
     print(getTxid())
     print(getTxid())
     db.exitPgm("DBG", -1)
-
-def showTransactions():
-    op = "SELECT * FROM transactions;"
-    dbOp(dbCursor, op)
-    for i in dbCursor:
-        print(i)
 
 def remEnc(inx, dchar):
     if inx[0] == dchar:
@@ -309,27 +271,6 @@ def checkingAccountImportSmallBusBofA(c):
     j = json.dumps(dbEntries, indent=4)
     print(j)
 
-def chgAddAccount(dbCursor):
-    print("add account")
-    name = input("name: ")
-    number = input("number: ")
-    if not validateNewAcct(number):
-        return
-    drcr = input("dr or cr: ")
-    if drcr == "dr":
-        intDrCr = "1"
-    elif drcr == "cr":
-        intDrCr = "-1"
-    else:
-        print("invalid drcr value")
-        return
-    op = ("INSERT INTO accounts (name, number, normal) VALUES "
-            "(\"" + name + "\"," + number + "," + intDrCr + ");")
-    print(op)
-    dbOp(dbCursor, op)
-    dbConn.commit()
-    print(dbCursor)
-
 def readCreds(db):
     try:
         csvfile = open("creds.csv", "r", newline='')
@@ -344,10 +285,6 @@ def readCreds(db):
         if db == row[0]:
             #print(row)
             return row
-
-def showSyntax(msg):
-    print("Usage: oa.py <optional path>/<cfg fn>")
-    db.exitPgm(msg, -1)
 
 lc = 0
 fc = 0
@@ -453,71 +390,12 @@ def stageImportCheckingCsv():
 
 # --- main ---
 
-print("mariadb frontend for simple accounting, v0.0")
+print("Open Accounting, v0.1")
 
 cfg.InitCfg()
 db.Init()
 acct.InitAccounts()
 
 while True:
-    cmd = input("cmd: ")
-    if cmd == "h":
-        help()
-    elif cmd == "q":
-        db.Shutdown()
-    elif cmd == "ck":
-        checkingAccountImportSmallBusBofA(dbCursor)
-    elif cmd == "cc":
-        creditCardImportSmallBusBofA(dbCursor)
-    elif cmd == "split":
-        splitCsv()
-    elif cmd == "inx":
-        inx(dbCursor)
-    elif cmd == "ccold":
-        chgImportOldCC(dbCursor)
-    elif cmd == "sgcc":
-        stageImportCreditCardCsv()
-    elif cmd == "sgck":
-        stageImportCheckingCsv()
-    elif cmd == "sgn":
-        stage.New()
-    elif cmd == "sge":
-        stage.EditByEntry()
-    elif cmd == "sgar":
-        stage.AuditReview()
-    elif cmd == "sgan":
-        stage.AuditNew()
-    elif cmd == "sg2tx":
-        stage.ImportToTransactions()
-    elif cmd == "addac":
-        chgAddAccount(dbCursor)
-    elif cmd == "shac":
-        acct.ShowAccounts()
-    elif cmd == "shbal":
-        xact.ShowBalance()
-    elif cmd == "shx":
-        showTransactions()
-    elif cmd == "addx":
-        chgAddTransaction(dbCursor)
-    elif cmd == "ct":
-        dbCommit(dbConn)
-        acct.GetAccounts(dbCursor)
-    elif cmd == "rb":
-        dbRollback(dbConn)
-    elif cmd == "difcsvck":
-        csvop.SortDiffStage(csvop.CK, cfg.GetCkTag(), cfg.GetCkCsvSkip(), cfg.GetCkCsvSortColumn())
-    elif cmd == "difcsvcc":
-        csvop.SortDiffStage(csvop.CC, cfg.GetCcTag(), cfg.GetCcCsvSkip(), cfg.GetCcCsvSortColumn())
-    elif cmd == "test":
-        runTest()
-    else:
-        print("cmd not recognized")
-
-# change log
-
-# 2023-08-27, log started, added readCreds(); getting ready to put in GitHub
-
-#select  account, name, sum(amount * direction * normal) as balance  from transactions left join accounts on account = accounts.number group by name order by account;
-
-# TODO chg ccold to csv reader to fix leading dbl quote pblm; add start  of year xacts to ccold csv; chg ccold csv to all
-# expenses
+    if not ask.Cmd():
+        sys.exit(0)

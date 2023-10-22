@@ -35,10 +35,18 @@ def mkCfg():
     putCfg()
     return
 
+def showSyntax(msg):
+    print("ERROR:%s" % msg)
+    print("Usage: oa.py <optional path>/<cfg fn>")
+    sys.exit(-1)
+
 def getCfgFn():
     if len(sys.argv) != 2:
         showSyntax("missing cfg fn")
-    return sys.argv[1]
+    cfgfn = sys.argv[1]
+    if not os.path.isfile(cfgfn):
+        showSyntax("file does not exist: %s" % cfgfn)
+    return cfgfn
 
 def getCfg():
     global GLOBAL_cfg, GLOBAL_cfgFn

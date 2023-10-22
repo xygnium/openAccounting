@@ -18,6 +18,8 @@ WHERE_STATUS_IS_DONE = WHERE_STATUS + DQ + "done" + DQ
 ORDER_BY_DATE = " ORDER BY date" + SEMI
 SELECT_ALL_ACCTS = "SELECT * FROM accounts ORDER BY number;"
 SELECT_STAGE_NEW_DATE = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_NEW + ORDER_BY_DATE
+SELECT_STAGE_REVIEW_DATE = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_REVIEW + ORDER_BY_DATE
+SELECT_STAGE_READY_DATE = SELECT_ALL_FROM_STAGE + WHERE_STATUS_IS_READY + ORDER_BY_DATE
 
 # --- private functions ---
 
@@ -36,7 +38,7 @@ def getCursor(conn):
 
 def exitPgm(msg, code):
     print(msg)
-    sys.exit(code)
+    #sys.exit(code)
 
 def exitAbnormal(msg):
     global dbConn, dbCursor, dbChgAttempt
@@ -99,16 +101,17 @@ def dbRollback(conn):
 def Shutdown():
     if not dbChanged():
         exitNormal("OK")
-    commit = input("commit (y|n): ")
-    if commit == "y":
-        print("changes committed")
-        dbCommit()
-        exitNormal("OK")
-    elif commit == "n":
-        print("changes NOT committed")
-        exitNormal("OK")
     else:
-        print("need y or n")
+        commit = input("commit (y|n): ")
+        if commit == "y":
+            print("changes committed")
+            dbCommit()
+            exitNormal("OK")
+        elif commit == "n":
+            print("changes NOT committed")
+            exitNormal("OK")
+        else:
+            print("need y or n")
     return
 
 def SelectAllAccounts():
@@ -174,7 +177,7 @@ def mkDrX(txid, date, amt, acct, payee, desc, invid):
 def mkCrX(txid, date, amt, acct, payee, desc, invid):
     return mkInsertX(txid, date, amt, acct, "-1", payee, desc, invid)
 
-def pushTxToDb(c, date, amt, drAcct, crAcct, payee, desc, invoiceID):
+def PushTxToDb(date, amt, drAcct, crAcct, payee, desc, invoiceID):
     txid = cfg.getTxid()
     drop = mkDrX(txid, date, amt, drAcct, payee, desc, invoiceID)
     crop = mkCrX(txid, date, amt, crAcct, payee, desc, invoiceID)
