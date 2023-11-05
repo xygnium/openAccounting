@@ -27,7 +27,7 @@ s3client = boto3.client('s3')
 showBuckets(s3resource)
 
 OBJ_DELIM="/"
-fqfn="/home/mike/dev/fm/invoices/2023/used/raleigh-10102023-57.63.pdf"
+fqfn="x3.pdf"
 fn=os.path.basename(fqfn)
 objFn=OBJ_DELIM + "used" + OBJ_DELIM + fn
 bucketCsv="fmllc-csv"
