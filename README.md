@@ -17,7 +17,7 @@ Financial reports are run using the transactions table.
 2. create tables
 3. create configuration file
 # Start
-<path to clone dir>/oa.py   <path to cfg file>/cfgfile
+`<path to clone dir>/oa.py   <path to cfg file>/cfgfile`
 # Build account table
 Use the addac command.
 # Initial stage and transactions tables
