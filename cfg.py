@@ -22,6 +22,8 @@ def mkCfg():
             "dbip": None,
             "txid": 0,
             "csvDir": None,
+            "csvDirNew": None,
+            "csvDirUsed": None,
             "invoiceDirNew": None,
             "invoiceDirUsed": None,
             "checkingTag": "ck",

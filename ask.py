@@ -11,18 +11,9 @@ import stage
 import acct
 import xact
 
-#cmds = ["help", "q", "cc-old", "accounts", "ac", "zero", "addac"]
-#        "cc": "make transactions input file from csv file downloaded from BofA credit card account",
-#        "ck": "make transactions input file from csv file downloaded from BofA checking account",
-#        "inx": "chg db - import transactions input file",
-#        "ccold": "chg db - add credit card transactions from modified csv file downloaded from Google Sheets",
-#        "split": "split csv file into N files with 4 entries each - needs adjustment for cc vs ck files",
-
 cmdDict = {
         "h": "show all cmds",
         "q": "quit pgm",
-        "difcsvck": "compare previous and new checking csv files, find new rows, import to stage table",
-        "difcsvcc": "compare previous and new credit card csv files, find new rows, import to stage table",
         "sgcc": "stage table - import entries from credit card pipe delimited csv file",
         "sgck": "stage table - import entries from checking pipe delimited csv file",
         "sgn": "stage table - create a new entry",
@@ -30,7 +21,8 @@ cmdDict = {
         "sgan": "stage table - audit entries where status=new",
         "sgar": "stage table - audit entries where status=review",
         "sg2tx": "stage table - import entries to transaction table where status=ready",
-        "shbal": "show balance",
+        "shbal": "show balance by accounts",
+        "shexp": "show expense summary",
         "shac": "show account info",
         "addac": "chg db - add account",
         "addx": "chg db - create and add transaction",
@@ -90,20 +82,10 @@ def Cmd():
     elif cmd == "q":
         db.Shutdown()
         return False
-    elif cmd == "ck":
-        checkingAccountImportSmallBusBofA(dbCursor)
-    elif cmd == "cc":
-        creditCardImportSmallBusBofA(dbCursor)
-    elif cmd == "split":
-        splitCsv()
-    elif cmd == "inx":
-        inx(dbCursor)
-    elif cmd == "ccold":
-        chgImportOldCC(dbCursor)
     elif cmd == "sgcc":
-        stageImportCreditCardCsv()
+        stage.ImportCreditCardCsv()
     elif cmd == "sgck":
-        stageImportCheckingCsv()
+        stage.ImportCheckingCsv()
     elif cmd == "sgn":
         stage.New()
     elif cmd == "sge":
@@ -120,19 +102,15 @@ def Cmd():
         acct.ShowAccounts()
     elif cmd == "shbal":
         xact.ShowBalance()
+    elif cmd == "shexp":
+        xact.ShowExpenseBalance()
     elif cmd == "shx":
         xact.ShowTransactions()
-    elif cmd == "addx":
-        chgAddTransaction(dbCursor)
     elif cmd == "ct":
         dbCommit(dbConn)
         acct.GetAccounts(dbCursor)
     elif cmd == "rb":
         dbRollback(dbConn)
-    elif cmd == "difcsvck":
-        csvop.SortDiffStage(csvop.CK, cfg.GetCkTag(), cfg.GetCkCsvSkip(), cfg.GetCkCsvSortColumn())
-    elif cmd == "difcsvcc":
-        csvop.SortDiffStage(csvop.CC, cfg.GetCcTag(), cfg.GetCcCsvSkip(), cfg.GetCcCsvSortColumn())
     elif cmd == "test":
         runTest()
     else:

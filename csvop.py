@@ -50,7 +50,7 @@ def GetFile(user):
     # display list of files in cfg csv dir
     return ask.Ask4FileByIndex(user, cfg.getCsvDir(), "*")
 
-def SortDiffStage(user, tag, skip, sortColumn):
+def DeprecatedSortDiffStage(user, tag, skip, sortColumn):
     userOld = "%s - previous csv" % user
     csvFnOld, ok = getFileByTag(userOld, tag)
     if not ok:

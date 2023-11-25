@@ -4,6 +4,9 @@ import ask
 import db
 import acct
 import cfg
+import csv
+import csvop
+from itertools import islice
 
 # --- private funtions ---
 
@@ -306,4 +309,35 @@ def printStageRow(r):
 #    descrip: 
 #  invoiceid: 
 #     status: delete
+
+def csvEngine2(user, rowMethod, skip):
+    csvFn, ok = csvop.GetFile(user)
+    if not ok:
+        return False
+    # open csv file
+    print("reading file: %s" % csvFn)
+    try:
+        fh = open(csvFn, newline='')
+    except:
+        print("could not open %s" % csvFn)
+        return False
+    # skip top n rows
+    csvreader = islice(csv.reader(fh, delimiter="|"), skip, None)
+    #csvreader = islice(csv.DictReader(fh), skip, None)
+    i = 1
+    for row in csvreader:
+        if not rowMethod(row):
+            return False
+        i = i + 1
+    return True
+
+def ImportCreditCardCsv():
+    print("stageCreditCardCsv")
+    csvEngine2("ck", AddRowCreditCard, skip=cfg.GetCcCsvSkip())
+    return
+
+def ImportCheckingCsv():
+    print("stageCheckingCsv")
+    csvEngine2("ck", AddRowChecking, skip=cfg.GetCkCsvSkip())
+    return
 

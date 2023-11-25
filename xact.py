@@ -66,6 +66,22 @@ def ShowBalance():
     makeDetailedBalanceSheet()
     confirmZero()
 
+def ShowTaxableIncomeBalance():
+    print("select sum(amount * direction * normal) as balance from transactions left join accounts on account = accounts.number where account = 310 or account = 311;")
+
+def ShowExpenseBalance():
+    op =    ("SELECT "
+                "sum(amount * direction * normal) as balance "
+            "FROM "
+                "transactions "
+                "left join accounts on account = accounts.number "
+            "WHERE "
+                "account > 399 and account < 500;")
+    #print("op=%s" % op)
+    c = db.TryDbOp(op)
+    for i in c:
+        print("%s" % i[0])
+
 def ShowTransactions():
     op = "SELECT * FROM transactions;"
     dbOp(dbCursor, op)
