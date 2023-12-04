@@ -37,6 +37,8 @@ def getAcct(prompt):
         return "", False
     return acct, True
 
+# --- public functions ---
+
 def InputAccountValue(prompt, showAcctList):
     if showAcctList:
         ShowAccounts()
@@ -44,14 +46,12 @@ def InputAccountValue(prompt, showAcctList):
 
 def PrintAccountValue(label, value):
     acctDesc="invalid"
-    if value in acctDict:
-        acctDesc = acctDict[value]
+    if int(value) in acctDict:
+        acctDesc = acctDict[int(value)]
     elif value == 0:
         acctDesc = "unassigned"
 
     print("%12s: %s %s" % (label, value, acctDesc))
-
-# --- public functions ---
 
 def InitAccounts():
     # load lists of accounts
@@ -106,7 +106,13 @@ def ShowAccounts():
         dri = dri + 1
         cri = cri + 1
 
-def chgAddAccount(dbCursor):
+def DropAccount():
+    an, ok = InputAccountValue("drop acct", showAcctList=True)
+    if not ok:
+        return
+    PrintAccountValue("dropping account", an)
+
+def AddAccount():
     print("add account")
     name = input("name: ")
     number = input("number: ")
@@ -122,8 +128,6 @@ def chgAddAccount(dbCursor):
         return
     op = ("INSERT INTO accounts (name, number, normal) VALUES "
             "(\"" + name + "\"," + number + "," + intDrCr + ");")
-    print(op)
-    dbOp(dbCursor, op)
-    dbConn.commit()
-    print(dbCursor)
+    db.PushChange(op)
+    db.Commit()
 

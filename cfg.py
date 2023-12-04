@@ -16,10 +16,11 @@ def mkCfg():
     # if not cfg exist
     # make and write to file
     GLOBAL_cfg = {
-            "db": "testdb",
+            "db": None,
             "dbuid": "admin",
-            "dbpswd": "owl",
+            "dbpswd": None,
             "dbip": None,
+            "tblAccountsInit": None,
             "txid": 0,
             "csvDir": None,
             "csvDirNew": None,
@@ -35,7 +36,7 @@ def mkCfg():
             "stageDir": None
             }
     putCfg()
-    return
+    showSyntax("created %s; edit and restart program" % GLOBAL_cfgFn)
 
 def showSyntax(msg):
     print("ERROR:%s" % msg)
@@ -47,7 +48,7 @@ def getCfgFn():
         showSyntax("missing cfg fn")
     cfgfn = sys.argv[1]
     if not os.path.isfile(cfgfn):
-        showSyntax("file does not exist: %s" % cfgfn)
+        print("file does not existi; creating: %s" % cfgfn)
     return cfgfn
 
 def getCfg():
@@ -89,6 +90,9 @@ def getDbUid():
 
 def getDbPswd():
     return GLOBAL_cfg["dbpswd"]
+
+def GetTblAccountsInit():
+    return GLOBAL_cfg["tblAccountsInit"]
 
 def GetInvoiceDirNew():
     return GLOBAL_cfg["invoiceDirNew"]

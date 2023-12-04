@@ -77,14 +77,13 @@ def ShowExpenseBalance():
                 "left join accounts on account = accounts.number "
             "WHERE "
                 "account > 399 and account < 500;")
-    #print("op=%s" % op)
     c = db.TryDbOp(op)
     for i in c:
         print("%s" % i[0])
 
 def ShowTransactions():
     op = "SELECT * FROM transactions;"
-    dbOp(dbCursor, op)
-    for i in dbCursor:
+    c = db.TryDbOp(op)
+    for i in c:
         print(i)
 

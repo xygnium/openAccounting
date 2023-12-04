@@ -24,7 +24,8 @@ cmdDict = {
         "shbal": "show balance by accounts",
         "shexp": "show expense summary",
         "shac": "show account info",
-        "addac": "chg db - add account",
+        "addac": "add account",
+        "dropac": "drop account",
         "addx": "chg db - create and add transaction",
         "shx": "show all transactions",
         "ct": "db commit",
@@ -37,7 +38,7 @@ def OaHelp():
 
 def Ask(user, prompt, required):
     while True:
-        reply = input("\n%s %s: " % (user, prompt))
+        reply = input("\n%s:%s: " % (user, prompt))
         print()
         if reply == "q":
             print("%s quit" % user)
@@ -96,8 +97,10 @@ def Cmd():
         stage.AuditNew()
     elif cmd == "sg2tx":
         stage.ImportToTransactions()
+    elif cmd == "dropac":
+        acct.DropAccount()
     elif cmd == "addac":
-        chgAddAccount(dbCursor)
+        acct.AddAccount()
     elif cmd == "shac":
         acct.ShowAccounts()
     elif cmd == "shbal":
@@ -108,9 +111,11 @@ def Cmd():
         xact.ShowTransactions()
     elif cmd == "ct":
         dbCommit(dbConn)
-        acct.GetAccounts(dbCursor)
+        acct.GetAccounts()
     elif cmd == "rb":
         dbRollback(dbConn)
+    elif cmd == "initTables":
+        db.InitTables()
     elif cmd == "test":
         runTest()
     else:

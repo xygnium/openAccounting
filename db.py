@@ -1,5 +1,6 @@
 import sys
 import mariadb 
+import ask
 
 import cfg
 
@@ -72,7 +73,7 @@ def TryDbOp(op):
     try:
         dbCursor.execute(op)
     except mariadb.Error as e:
-        db.exitAbnormal(e)
+        exitAbnormal(e)
     return dbCursor
 
 def CursorToList():
@@ -105,7 +106,7 @@ def Shutdown():
         commit = input("commit (y|n): ")
         if commit == "y":
             print("changes committed")
-            dbCommit()
+            Commit()
             exitNormal("OK")
         elif commit == "n":
             print("changes NOT committed")
@@ -186,3 +187,72 @@ def PushTxToDb(date, amt, drAcct, crAcct, payee, desc, invoiceID):
     TryDbOp(drop)
     TryDbOp(crop)
 
+def mkEmptyAccountsTable():
+    print("make empty accounts table")
+    op = (
+    "CREATE OR REPLACE TABLE accounts ("
+    "name text NOT NULL,"
+    "number int(3) NOT NULL,"
+    "normal int(3) NOT NULL"
+    ");"
+    )
+    PushChange(op)
+
+def mkAccountsTable():
+    print("mkAccountsTable")
+    if cfg.GetTblAccountsInit() == None:
+        mkEmptyAccountsTable()
+    else:
+        print("use existing accounts table")
+
+def mkStageTable():
+    print("mkStageTable")
+    op = (
+    "CREATE OR REPLACE TABLE stage ("
+    "entry int(11) NOT NULL AUTO_INCREMENT,"
+    "date date NOT NULL,"
+    "amount decimal(15,2) NOT NULL,"
+    "DR_account int(3) DEFAULT NULL,"
+    "CR_account int(3) DEFAULT NULL,"
+    "payee_payer varchar(64) DEFAULT NULL,"
+    "descrip varchar(64) DEFAULT NULL,"
+    "invoiceid varchar(64) DEFAULT NULL,"
+    "status varchar(8) NOT NULL,"
+    "PRIMARY KEY (entry)"
+    ");"
+    )
+    PushChange(op)
+
+def mkTransactionsTable():
+    print("mkTransactionsTable")
+    op = (
+    "CREATE OR REPLACE TABLE transactions ("
+    "entry int(11) NOT NULL AUTO_INCREMENT,"
+    "txid int(5) NOT NULL,"
+    "date date NOT NULL,"
+    "amount decimal(15,2) NOT NULL,"
+    "account int(3) NOT NULL,"
+    "direction int(3) NOT NULL,"
+    "payee varchar(64) DEFAULT NULL,"
+    "descrip varchar(64) DEFAULT NULL,"
+    "invoiceid varchar(64) DEFAULT NULL,"
+    "PRIMARY KEY (entry)"
+    ");"
+    )
+    PushChange(op)
+
+def PushChange(op):
+    print("op=%s" % op)
+    dbIsChanged()
+    TryDbOp(op)
+
+def InitTables():
+    reply, quitEntered = ask.Ask("InitTables", "Enter YES! to continue and lose all data: ", required=True)
+    if reply != "YES!":
+        print("Tables NOT initialized. reply=%s" % reply)
+        return
+    mkAccountsTable()
+    mkStageTable()
+    mkTransactionsTable()
+    Commit()
+    print("Tables initialized.")
