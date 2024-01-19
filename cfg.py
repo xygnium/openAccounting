@@ -22,7 +22,6 @@ def mkCfg():
             "dbip": None,
             "tblAccountsInit": None,
             "txid": 0,
-            "csvDir": None,
             "csvDirNew": None,
             "csvDirUsed": None,
             "invoiceDirNew": None,
@@ -31,6 +30,7 @@ def mkCfg():
             "checkingCsvSortColumn": 0,
             "checkingCsvSkip": 8,
             "creditCardTag": "cc",
+            "creditCardAcct": None,
             "creditCardCsvSortColumn": 3,
             "creditCardCsvSkip": 5,
             "stageDir": None
@@ -48,7 +48,7 @@ def getCfgFn():
         showSyntax("missing cfg fn")
     cfgfn = sys.argv[1]
     if not os.path.isfile(cfgfn):
-        print("file does not existi; creating: %s" % cfgfn)
+        print("file does not exist; creating: %s" % cfgfn)
     return cfgfn
 
 def getCfg():
@@ -94,23 +94,26 @@ def getDbPswd():
 def GetTblAccountsInit():
     return GLOBAL_cfg["tblAccountsInit"]
 
+def GetCsvDirNew():
+    return GLOBAL_cfg["csvDirNew"]
+
+def GetCsvDirUsed():
+    return GLOBAL_cfg["csvDirUsed"]
+
 def GetInvoiceDirNew():
     return GLOBAL_cfg["invoiceDirNew"]
 
 def GetInvoiceDirUsed():
     return GLOBAL_cfg["invoiceDirUsed"]
 
-def getCsvDir():
-    return GLOBAL_cfg["csvDir"]
-
-def getStageDir():
-    return GLOBAL_cfg["stageDir"]
-
 def GetCkTag():
     return GLOBAL_cfg["checkingTag"]
 
 def GetCcTag():
     return GLOBAL_cfg["creditCardTag"]
+
+def GetCcAcct():
+    return GLOBAL_cfg["creditCardAcct"]
 
 def GetCkCsvSortColumn():
     return GLOBAL_cfg["checkingCsvSortColumn"]

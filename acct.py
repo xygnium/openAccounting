@@ -15,9 +15,9 @@ def errorReturn(msg):
 def validateExistingAcct(acct):
     if not validateNewAcct(acct):
         return False
-    print("acct=%s, dict entry=%s" % (acct, acctDict[int(acct)]))
     if not int(acct) in acctDict:
         return errorReturn("account value (%s) not in list" % acct)
+    print("acct=%s, dict entry=%s" % (acct, acctDict[int(acct)]))
     return True
     
 def validateNewAcct(acct):
@@ -111,14 +111,23 @@ def DropAccount():
     if not ok:
         return
     PrintAccountValue("dropping account", an)
+    op = ("DELETE FROM accounts WHERE number=" + an)
+    print("op=%s" % op)
+    db.PushChange(op)
+    db.Commit()
 
 def AddAccount():
-    print("add account")
-    name = input("name: ")
-    number = input("number: ")
+    name, ok = ask.Ask("AddAccount", "name", required=True)
+    if not ok:
+        return
+    number, ok = ask.Ask("AddAccount", "number", required=True)
+    if not ok:
+        return
     if not validateNewAcct(number):
         return
-    drcr = input("dr or cr: ")
+    drcr, ok = ask.Ask("AddAccount", "account type (dr/cr)", required=True)
+    if not ok:
+        return
     if drcr == "dr":
         intDrCr = "1"
     elif drcr == "cr":

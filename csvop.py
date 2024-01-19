@@ -39,16 +39,16 @@ def sortedCsvList(fn, skip, column):
     print()
     return sortedlist
     
-def getFileByTag(user, tag):
+# --- public functions ---
+
+def GetFileByTag(user, tag):
     # display list of files in cfg csv dir
     fnWildcard = "*%s*" % tag
-    return ask.Ask4FileByIndex(user, cfg.getCsvDir(), fnWildcard)
-
-# --- public functions ---
+    return ask.Ask4FileByIndex(user, cfg.GetCsvDirNew(), fnWildcard)
 
 def GetFile(user):
     # display list of files in cfg csv dir
-    return ask.Ask4FileByIndex(user, cfg.getCsvDir(), "*")
+    return ask.Ask4FileByIndex(user, cfg.GetCsvDirNew(), "*")
 
 def DeprecatedSortDiffStage(user, tag, skip, sortColumn):
     userOld = "%s - previous csv" % user

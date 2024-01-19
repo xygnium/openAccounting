@@ -32,14 +32,17 @@ cmdDict = {
         "rb": "db rollback"
         }
 
+def fdirUnusable(fdir):
+    print("ERROR:file directory usnusable:fdir=%s" % fdir)
+    return "", False
+
 def OaHelp():
     for c in cmdDict:
         print("%10s, %s" % (c, cmdDict[c]))
 
 def Ask(user, prompt, required):
     while True:
-        reply = input("\n%s:%s: " % (user, prompt))
-        print()
+        reply = input("%s:%s: " % (user, prompt))
         if reply == "q":
             print("%s quit" % user)
             return "", False
@@ -51,6 +54,8 @@ def Ask(user, prompt, required):
             print("input required")
 
 def Ask4FileByIndex(user, fdir, wild):
+    if (fdir == None) or (not os.path.isdir(fdir)):
+        return fdirUnusable(fdir)
     fList = glob.glob(os.path.join(fdir, wild))
     # prompt user for file selection
     i = 0
@@ -99,8 +104,10 @@ def Cmd():
         stage.ImportToTransactions()
     elif cmd == "dropac":
         acct.DropAccount()
+        acct.InitAccounts()
     elif cmd == "addac":
         acct.AddAccount()
+        acct.InitAccounts()
     elif cmd == "shac":
         acct.ShowAccounts()
     elif cmd == "shbal":
@@ -110,10 +117,10 @@ def Cmd():
     elif cmd == "shx":
         xact.ShowTransactions()
     elif cmd == "ct":
-        dbCommit(dbConn)
-        acct.GetAccounts()
+        db.Commit()
+        acct.InitAccounts()
     elif cmd == "rb":
-        dbRollback(dbConn)
+        db.Rollback()
     elif cmd == "initTables":
         db.InitTables()
     elif cmd == "test":

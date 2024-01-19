@@ -61,53 +61,104 @@ def absoluteAmt(amt):
 def moveInvid(fn):
     os.rename(fn, cfg.GetInvoiceUsed())
 
-def inputCrDrDescInvid(intcr, intdr, desc, invid):
-    invidFq, ok = ask.Ask4FileByIndex("stage", cfg.GetInvoiceDirNew(), "*pdf")
-    if not ok:
-        return "",  "",  "",  "", "", False
-    if invidFq == "skip":
-        invidFq = ""
-        invidBase = ""
-    else:
-        invidBase = os.path.basename(invidFq)
+def inputCrDrDesc(intcr, intdr, desc):
     showAcctListCr=False
     showAcctListDr=True
     cr = str(intcr)
     dr = str(intdr)
+    showAcctList=True
     if intcr == 0:
-        showAcctListCr=True
-        cr, ok = acct.InputAccountValue("CR", showAcctListCr)
+        cr, ok = acct.InputAccountValue("CR", showAcctList)
         if not ok:
-            return "",  "",  "",  "", "", False
+            return "",  "",  "", False
+        showAcctList=False
     if intdr == 0:
-        if showAcctListCr:
-            showAcctListDr=False
-        dr, ok = acct.InputAccountValue("DR", showAcctListDr)
+        dr, ok = acct.InputAccountValue("DR", showAcctList)
         if not ok:
-            return "",  "",  "",  "", "", False
+            return "",  "",  "", False
     reply = input("description (%s):" % desc)
     if ask.Quit(reply):
-        return "",  "",  "",  "", "", False
+        return "",  "", "", False
     else:
         desc = reply
-    return cr, dr, desc, invidFq, invidBase, True
+    return cr, dr, desc, True
+
+def guessInvid(date, amt):
+    mn = date.strftime("%m")
+    yr = date.strftime("%Y")
+    #mike@Ununtu-2:~/dev/xygnium$ ls invoices/new/*-03??2023-*-202.00.pdf
+    guess = "*-" + mn + "??" + yr + "-*-" + str(amt) + ".pdf"
+    print("guess=%s" % guess)
+    invid, ok = ask.Ask4FileByIndex("stage", cfg.GetInvoiceDirNew(), guess)
+    if not ok:
+        return "", False
+    invidBasename = os.path.basename(invid)
+    print("basename of invid selected = %s" % os.path.basename(invid))
+    return invidBasename, True
 
 def chgCrDrDescInvid(r):
     entry= r[0]
+    date = r[1]
+    amt = r[2]
     dr = r[3]
     cr = r[4]
     desc = r[6]
     invid = r[7]
-    cr, dr, desc, invidFull, invidBase, ok = inputCrDrDescInvid(cr, dr, desc, invid)
+    invid, ok = guessInvid(date, amt)
     if not ok:
         return
-    if invidFull != "":
-        invidUsed = os.path.join(cfg.GetInvoiceDirUsed(), invidBase)
-        print("mv invidFull=%s invidUsed=%s" % (invidFull, invidUsed))
-        os.rename(invidFull, invidUsed)
-    op = db.MkUpdateStageCrDrDescInvidOp(entry, cr, dr, desc, invidBase)
+    cr, dr, desc, ok = inputCrDrDesc(cr, dr, desc)
+    if not ok:
+        return
+    #if invidFull != "":
+    #    invidUsed = os.path.join(cfg.GetInvoiceDirUsed(), invidBase)
+    #    print("mv invidFull=%s invidUsed=%s" % (invidFull, invidUsed))
+    #    os.rename(invidFull, invidUsed)
+    op = db.MkUpdateStageCrDrDescInvidOp(entry, cr, dr, desc, invid)
     db.TryDbOp(op)
     db.Commit()
+
+def printStageRow(r):
+    print("-----------------------------------------")
+    print("%12s: %s" % ("entry", r[0]))
+    print("%12s: %s" % ("date", r[1]))
+    print("%12s: %s" % ("amount", r[2]))
+    acct.PrintAccountValue("DR_account", r[3])
+    acct.PrintAccountValue("CR_account", r[4])
+    print("%12s: %s" % ("payee_payer", r[5]))
+    print("%12s: %s" % ("descrip", r[6]))
+    print("%12s: %s" % ("invoiceid", r[7]))
+    print("%12s: %s" % ("status", r[8]))
+#      entry: 441
+#       date: 2022-12-30
+#     amount: 500.00
+# DR_account: 0
+# CR_account: 110
+#payee_payer: Zelle Transfer Conf# d94mvrik6; Mueller, Gabriel
+#    descrip: 
+#  invoiceid: 
+#     status: delete
+
+def csvEngine2(tag, rowMethod, skip):
+    csvFn, ok = csvop.GetFileByTag("csvEngine2", tag)
+    if not ok:
+        return False
+    # open csv file
+    print("reading file: %s" % csvFn)
+    try:
+        fh = open(csvFn, newline='')
+    except:
+        print("could not open %s" % csvFn)
+        return False
+    # skip top n rows
+    csvreader = islice(csv.reader(fh, delimiter="|"), skip, None)
+    #csvreader = islice(csv.DictReader(fh), skip, None)
+    i = 1
+    for row in csvreader:
+        if not rowMethod(row):
+            return False
+        i = i + 1
+    return True
 
 # --- public functions ---
 
@@ -124,7 +175,8 @@ def AddRowCreditCard(r):
         return False
     payee = removeChars(r[5][:64])
     transType = r[9]
-    if (ccacct == "1327") and (transType == "C"):
+    #if (ccacct == "1327") and (transType == "C"):
+    if (ccacct == cfg.GetCcAcct()) and (transType == "C"):
         print(r)
         warn("ignoring row; pmt to cc are recorded in checking account")
         return True
@@ -202,7 +254,7 @@ def AuditReview():
     return
 
 def AuditNew():
-    print("stageAuditNew")
+    print("AuditNew")
     cfg.getCfg()
     op = db.SELECT_STAGE_NEW_DATE
     print("op=%s" % op)
@@ -241,31 +293,21 @@ def ImportToTransactions():
         db.TryDbOp(op)
         db.Commit()
 
-def stageNew():
-    print("stageNew")
+def New():
+    print("New")
     date = input("date (mm/dd/yyyy): ")
-    if quit(date):
-        return
-    date, ok = stage.fixDate(date)
+    date, ok = fixDate(date)
     if not ok:
         return
     amt = input("amount: ")
-    if quit(amt):
-        return
-    amt, isNegative, isMoney = stage.absoluteAmt(amt)
+    amt, isNegative, isMoney = absoluteAmt(amt)
     if not isMoney:
         return
     paidToFrom = input("paid to/from: ")
-    if quit(paidToFrom):
-        return
-    if len(paidToFrom) == 0:
-        error("paid to/from must be entered")
-        return
-    cr, dr, desc, invid, ok = inputCrDrDescInvid(0, 0, "", "")
+    cr, dr, desc, ok = inputCrDrDesc(0, 0, "")
     if not ok:
         return
-    op = mkInsertStageOp(date, amt, paidToFrom, desc, invid, dr, cr)
-    # put stage row
+    op = db.MkInsertStageOp(date, amt, paidToFrom, desc, "", dr, cr)
     db.TryDbOp(op)
     db.Commit()
 
@@ -289,51 +331,9 @@ def EditByEntry():
     db.Commit()
     return
 
-def printStageRow(r):
-    print("-----------------------------------------")
-    print("%12s: %s" % ("entry", r[0]))
-    print("%12s: %s" % ("date", r[1]))
-    print("%12s: %s" % ("amount", r[2]))
-    acct.PrintAccountValue("DR_account", r[3])
-    acct.PrintAccountValue("CR_account", r[4])
-    print("%12s: %s" % ("payee_payer", r[5]))
-    print("%12s: %s" % ("descrip", r[6]))
-    print("%12s: %s" % ("invoiceid", r[7]))
-    print("%12s: %s" % ("status", r[8]))
-#      entry: 441
-#       date: 2022-12-30
-#     amount: 500.00
-# DR_account: 0
-# CR_account: 110
-#payee_payer: Zelle Transfer Conf# d94mvrik6; Mueller, Gabriel
-#    descrip: 
-#  invoiceid: 
-#     status: delete
-
-def csvEngine2(user, rowMethod, skip):
-    csvFn, ok = csvop.GetFile(user)
-    if not ok:
-        return False
-    # open csv file
-    print("reading file: %s" % csvFn)
-    try:
-        fh = open(csvFn, newline='')
-    except:
-        print("could not open %s" % csvFn)
-        return False
-    # skip top n rows
-    csvreader = islice(csv.reader(fh, delimiter="|"), skip, None)
-    #csvreader = islice(csv.DictReader(fh), skip, None)
-    i = 1
-    for row in csvreader:
-        if not rowMethod(row):
-            return False
-        i = i + 1
-    return True
-
 def ImportCreditCardCsv():
     print("stageCreditCardCsv")
-    csvEngine2("ck", AddRowCreditCard, skip=cfg.GetCcCsvSkip())
+    csvEngine2("cc", AddRowCreditCard, skip=cfg.GetCcCsvSkip())
     return
 
 def ImportCheckingCsv():
